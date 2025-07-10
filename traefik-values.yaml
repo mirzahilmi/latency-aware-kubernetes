@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/traefik/traefik-helm-chart/refs/heads/master/traefik/values.schema.json
+---
+nodeSelector:
+  kubernetes.io/hostname: kind-control-plane
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+
+providers:
+  kubernetesGateway:
+    enabled: true
+  kubernetesIngress:
+    enabled: false
+gateway:
+  namespacePolicy: All
+logs:
+  access:
+    enabled: true
+additionalArguments:
+  - "--log.level=DEBUG"
+ports:
+  traefik:
+    hostPort: 8080
