@@ -10,7 +10,7 @@ all.rm:
 
 .PHONY: cluster
 cluster:
-	kind create cluster --config Cluster.yaml
+	kind create cluster --config ./k8s/Cluster.yaml
 
 .PHONY: cluster.rm
 cluster.rm:
@@ -28,22 +28,22 @@ gateway:
 	helm install traefik traefik/traefik \
 		--create-namespace \
 		--namespace traefik-gateway-api \
-		--values traefik-values.yaml
+		--values ./k8s/traefik-values.yaml
 
 .PHONY: stack
 stack:
 	kubectl apply \
-		--filename ./Namespace.yaml \
-		--filename ./Deployment.yaml \
-		--filename ./Gateway.yaml \
-		--filename ./HTTPRoute.yaml \
-		--filename ./Service.yaml
+		--filename ./k8s/Namespace.yaml \
+		--filename ./k8s/Deployment.yaml \
+		--filename ./k8s/Gateway.yaml \
+		--filename ./k8s/HTTPRoute.yaml \
+		--filename ./k8s/Service.yaml
 
 .PHONY: stack.rm
 stack.rm:
 	kubectl delete \
-		--filename ./Namespace.yaml \
-		--filename ./Deployment.yaml \
-		--filename ./Gateway.yaml \
-		--filename ./HTTPRoute.yaml \
-		--filename ./Service.yaml
+		--filename ./k8s/Namespace.yaml \
+		--filename ./k8s/Deployment.yaml \
+		--filename ./k8s/Gateway.yaml \
+		--filename ./k8s/HTTPRoute.yaml \
+		--filename ./k8s/Service.yaml
