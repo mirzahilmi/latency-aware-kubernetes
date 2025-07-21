@@ -1,0 +1,7 @@
+services:
+  emqx:
+    image: emqx/emqx:5.8.7
+    container_name: emqx
+    restart: unless-stopped
+    ports:
+      - 1883:1883
