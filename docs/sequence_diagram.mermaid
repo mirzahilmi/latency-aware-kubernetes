@@ -1,0 +1,46 @@
+sequenceDiagram
+    actor C as Client
+    participant Cr as CronJob
+    participant D as Discovery
+    participant K as Kubernetes API
+    participant G as Gateway API<br/>(Traefik)
+    participant P as Prober
+    participant WN as Worker Nodes
+    participant S as Scheduler
+
+    Note over Cr,G: Phase 1: Traffic Discovery
+    Cr->>D: Trigger top traffic discovery
+    D->>K: Read gateway deployment logs
+    K->>G: Pull access logs
+    G-->>K: Access Logs
+    K-->>D: Access Logs
+    D->>D: Discover top traffic IP address
+
+    Note over C,WN: Phase 2: Latency Probing
+    D->>K: Schedule latency probing jobs
+    K->>K: Store & schedule prober jobs creation
+    K->>WN: Provision prober program
+    WN->>P: Execute prober program
+    P->>C: PING!
+    C-->>P: PONG!
+    P->>P: Write latency metrics into log file
+    loop Every N second
+      Cr->>Cr: Check if there's any probing job running
+      loop Every N second
+        Cr->>Cr: Check if N probing job are all finished
+      end
+    end
+
+    Note over Cr,S: Phase 3: Scheduling & Descheduling
+    Cr->>S: Trigger "scheduler" job
+    S->>K: Read all prober log contents containing latency metric
+    K->>P: Pull log contents
+    P-->>K: Log Contents
+    K-->>S: Log Contents
+    S->>S: Average latency metric for each worker node
+    S->>K: Deschedule application pods by latency descending
+    K->>K: Store & schedule application pods removal
+    K->>WN: Remove application pods
+    S->>K: Schedule application pods by latency ascending
+    K->>K: Store & schedule application pods creation
+    K->>WN: Create application pods
