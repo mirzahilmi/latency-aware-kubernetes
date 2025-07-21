@@ -21,10 +21,11 @@ spec:
           ports:
             - containerPort: 80
               protocol: TCP
-          readinessProbe:
-            httpGet:
-              path: /
-              port: 80
+          # this thing sending the pod SIGQUIT thankyou
+          # readinessProbe:
+          #   httpGet:
+          #     path: /
+          #     port: 80
           resources:
             limits:
               memory: 250Mi
