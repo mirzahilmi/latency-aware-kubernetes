@@ -1,6 +1,6 @@
 use std::io::Result;
 
 fn main() -> Result<()> {
-    prost_build::compile_protos(&["proto/message.proto"], &["proto/"])?;
+    prost_build::compile_protos(&["../protobuf/message.proto"], &["../protobuf/"])?;
     Ok(())
 }
