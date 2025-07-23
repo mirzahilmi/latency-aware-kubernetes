@@ -14,7 +14,7 @@ fn main() {
         .unwrap();
     let mqtt_client_id = format!("mirzaganteng-{k8s_node}");
     let mqtt_discover_topic =
-        env::var("MQTT_RESULT_TOPIC").unwrap_or(String::from("prober/discover"));
+        env::var("MQTT_DISCOVER_TOPIC").unwrap_or(String::from("prober/discover"));
     let mqtt_result_topic = env::var("MQTT_RESULT_TOPIC").unwrap_or(String::from("prober/result"));
 
     let mut mqtt_options = MqttOptions::new(mqtt_client_id, mqtt_host, mqtt_port);
