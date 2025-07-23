@@ -81,5 +81,6 @@ fn main() {
             println!("Failed to publish metric: {e}");
             continue;
         }
+        println!("Published metrics");
     }
 }
