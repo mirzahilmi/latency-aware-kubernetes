@@ -45,6 +45,7 @@
           rust-analyzer
           lldb
           skaffold
+          protobuf
         ];
 
         env = {
