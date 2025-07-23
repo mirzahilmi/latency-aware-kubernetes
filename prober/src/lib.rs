@@ -1,11 +1,14 @@
-use std::process::Command;
-
 use regex::Regex;
+use std::{process::Command, vec};
+
+pub mod prober {
+    include!(concat!(env!("OUT_DIR"), "/prober.rs"));
+}
 
 pub type Error = Box<dyn std::error::Error>;
 
 pub trait Prober {
-    fn ping(&self, n: usize) -> Result<Vec<f64>, Error>;
+    fn ping(&self, n: usize) -> Result<Vec<f32>, Error>;
 }
 
 // this one actually the usual pattern i do when writing golang, im not sure if this also
@@ -19,7 +22,7 @@ struct Ping {
 }
 
 impl Prober for Ping {
-    fn ping(&self, n: usize) -> Result<Vec<f64>, Error> {
+    fn ping(&self, n: usize) -> Result<Vec<f32>, Error> {
         let out = Command::new("ping")
             .arg("-c")
             .arg(format!("{n}"))
@@ -44,7 +47,7 @@ impl Prober for Ping {
 
         let mut metrics = vec![];
         for (_, [metric]) in pattern.captures_iter(&entries).map(|c| c.extract()) {
-            let metric: f64 = metric.parse()?;
+            let metric: f32 = metric.parse()?;
             metrics.push(metric);
         }
 

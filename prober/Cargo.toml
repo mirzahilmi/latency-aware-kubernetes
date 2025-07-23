@@ -5,3 +5,10 @@ edition = "2024"
 
 [dependencies]
 regex = "1.11.1"
+rumqttc = "0.24.0"
+prost = "0.14"
+prost-types = "0.14"
+log = "0.4.27"
+
+[build-dependencies]
+prost-build = "0.14.1"
