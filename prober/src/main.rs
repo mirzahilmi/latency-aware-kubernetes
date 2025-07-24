@@ -1,13 +1,25 @@
-use std::{env, time::Duration};
+use std::{
+    env,
+    sync::mpsc::{self, Receiver, Sender},
+    thread,
+    time::Duration,
+};
 
-use ::prober::{Prober, prober::Latency};
-use prober::new_prober;
+use ::prober::Prober;
+use prober::{Ping, prober::LatencyAggr};
 use prost::Message;
-use rumqttc::{Client, Event, MqttOptions, Packet, QoS, SubscribeFilter};
+use rumqttc::{Client, Event, MqttOptions, Outgoing, QoS, SubscribeFilter};
 
 fn main() {
+    let targets: Vec<String> = env::args().skip(1).collect();
+    if targets.is_empty() {
+        panic!("Targets cannot be empty");
+    }
+
+    targets.iter().for_each(|target| println!("here {target}"));
+
     let k8s_node = env::var("KUBERNETES_NODE").unwrap_or(String::from("N/A"));
-    let mqtt_host = env::var("MQTT_HOST").unwrap_or(String::from("test.mosquitto.org"));
+    let mqtt_host = env::var("MQTT_HOST").unwrap_or(String::from("localhost"));
     let mqtt_port = env::var("MQTT_PORT")
         .unwrap_or(String::from("1883"))
         .parse()
@@ -20,7 +32,7 @@ fn main() {
     let mut mqtt_options = MqttOptions::new(mqtt_client_id, mqtt_host, mqtt_port);
     mqtt_options.set_keep_alive(Duration::from_secs(5));
 
-    let (client, mut connection) = Client::new(mqtt_options, 10);
+    let (client, mut conn) = Client::new(mqtt_options, 10);
     client
         .subscribe_many([
             SubscribeFilter {
@@ -34,53 +46,45 @@ fn main() {
         ])
         .unwrap();
 
-    println!("Listening for MQTT notification");
-    for notification in connection.iter() {
-        let event = match notification {
-            Ok(event) => event,
-            Err(e) => {
-                println!("Failed connection: {e}");
+    let (tx, rx): (Sender<()>, Receiver<()>) = mpsc::channel();
+
+    // pool mqtt connection in separate thread
+    thread::spawn(move || {
+        for notification in conn.iter() {
+            let event = notification.unwrap();
+            let Event::Outgoing(packet) = event else {
                 continue;
+            };
+            if let Outgoing::Publish(_) = packet {
+                // send signal when publish packet received
+                // and stop connection pooling
+                tx.send(()).unwrap();
+                break;
             }
-        };
-        let Event::Incoming(inbound) = event else {
-            continue;
-        };
-        let Packet::Publish(packet) = inbound else {
-            continue;
-        };
-        if packet.topic != mqtt_discover_topic {
-            continue;
         }
-        let target = match String::from_utf8(packet.payload.to_vec()) {
-            Ok(target) => target,
-            Err(e) => {
-                println!("Failed to parse packet payload bytes: {e}");
-                continue;
-            }
-        };
-        let prober = new_prober(target.clone());
-        let metrics = match prober.ping(5) {
-            Ok(metrics) => metrics,
-            Err(e) => {
-                println!("Failed to parse packet payload bytes: {e}");
-                continue;
-            }
-        };
-        let result = Latency {
-            ip_destination: target,
-            node_source: k8s_node.clone(),
-            metrics,
-        };
-        if let Err(e) = client.publish(
-            &mqtt_result_topic,
-            QoS::ExactlyOnce,
-            false,
-            Latency::encode_to_vec(&result),
-        ) {
-            println!("Failed to publish metric: {e}");
-            continue;
-        }
-        println!("Published metrics");
+    });
+
+    let prober = Ping { targets };
+    let latencies = prober.ping(5).unwrap();
+    latencies[0]
+        .metrics
+        .iter()
+        .for_each(|metric| println!("DEBUG: {metric}"));
+    let aggr = LatencyAggr {
+        node_source: k8s_node,
+        latencies,
+    };
+
+    if let Err(e) = client.publish(
+        &mqtt_result_topic,
+        QoS::ExactlyOnce,
+        false,
+        aggr.encode_to_vec(),
+    ) {
+        println!("Failed to publish metric: {e}");
     }
+    println!("Published metrics");
+
+    // block until signal received
+    rx.recv().unwrap();
 }

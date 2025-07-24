@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package prober;
+
+message LatencyAggr {
+  string node_source = 1;
+  repeated Latency latencies = 2;
+}
+
+message Latency {
+  string ip_destination = 1;
+  repeated float metrics = 2;
+}
