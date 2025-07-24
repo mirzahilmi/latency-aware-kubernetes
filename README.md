@@ -6,7 +6,7 @@ prototype. Please consider creating an issue if you have any questions.
 
 Kubernetes scheduling algorithm based on latency metric received by measuring ping latency of a 
 high traffic client within the specified time context. Check out the sequence diagram
-[here](./docs/sequence_diagram.mermaid) to understand better.
+[here](./docs/sequence_diagram_v0.2.mermaid) to understand better.
 
 ## How to run?
 
