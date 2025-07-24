@@ -42,6 +42,7 @@ sequenceDiagram
     P->>B: Publish latency metrics
     deactivate P
 
+    Note over K,SN: Phase 3: Reschedule application pods
     B->>Sc: Publish latency metrics
     Sc->>Sc: Average latency for each site
     Sc->>Sc: Sort site by latency descending
