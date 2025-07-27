@@ -6,7 +6,7 @@ metadata:
   name: nginx-app-svc
   namespace: riset
 spec:
-  type: ClusterIP
+  type: LoadBalancer
   selector:
     app: nginx-app
   ports:
