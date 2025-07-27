@@ -1,7 +1,7 @@
 .PHONY: all
 all:
 	make cluster
-	make gateway
+	make metallb
 	make stack
 
 .PHONY: all.rm # actually just an alias to cluster.rm
@@ -35,8 +35,6 @@ stack:
 	kubectl apply \
 		--filename ./k8s/Namespace.yaml \
 		--filename ./k8s/Deployment.yaml \
-		--filename ./k8s/Gateway.yaml \
-		--filename ./k8s/HTTPRoute.yaml \
 		--filename ./k8s/Service.yaml
 
 .PHONY: stack.rm
@@ -44,6 +42,33 @@ stack.rm:
 	kubectl delete \
 		--filename ./k8s/Namespace.yaml \
 		--filename ./k8s/Deployment.yaml \
-		--filename ./k8s/Gateway.yaml \
-		--filename ./k8s/HTTPRoute.yaml \
+		# --filename ./k8s/Gateway.yaml \
+		# --filename ./k8s/HTTPRoute.yaml \
 		--filename ./k8s/Service.yaml
+
+.PHONY: cilium
+cilium:
+	@echo "adding cilium into helm repo..."
+	helm repo add cilium https://helm.cilium.io/
+	@echo "installing cilium..."
+	helm install cilium cilium/cilium --version 1.17.6 \
+		--namespace kube-system \
+		--set nodeipam.enabled=true
+
+.PHONY: metallb
+metallb:
+	@echo "Adding metallb into helm repo..."
+	helm repo add metallb https://metallb.github.io/metallb
+	@echo "Installing metallb..."
+	helm install metallb metallb/metallb \
+		--create-namespace \
+		--namespace metallb-system \
+		--values ./k8s/metallb-values.yaml
+	@echo "Waiting for controller & speakers to be ready..."
+	kubectl --namespace metallb-system wait pod \
+		--all --timeout=90s \
+		--for=condition=Ready
+	kubectl --namespace metallb-system wait deploy metallb-controller \
+		--timeout=90s --for=condition=Available
+	kubectl --namespace metallb-system wait apiservice v1beta1.metallb.io \
+		--timeout=90s --for=condition=Available
