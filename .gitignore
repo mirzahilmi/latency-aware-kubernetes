@@ -13,4 +13,4 @@ target
 # Contains mutation testing data
 **/mutants.out*/
 
-access.yaml
+kubeconfig.yaml
