@@ -7,3 +7,7 @@ metadata:
 spec:
   ipAddressPools:
     - metallb-ipaddresspool
+  nodeSelectors:
+    - matchExpressions:
+        - key: node-role.kubernetes.io/control-plane
+          operator: DoesNotExist
