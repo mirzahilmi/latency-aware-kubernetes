@@ -44,9 +44,9 @@
           cargo-watch
           rust-analyzer
           lldb
-          skaffold
           protobuf
           protols
+          cilium-cli
         ];
 
         env = {
