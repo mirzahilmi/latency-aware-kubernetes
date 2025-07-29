@@ -1,7 +1,7 @@
 .PHONY: all
 all:
 	make cluster
-	make metallb
+	make cilium
 	make stack
 
 .PHONY: all.rm # actually just an alias to cluster.rm
@@ -28,7 +28,7 @@ gateway:
 	helm install traefik traefik/traefik \
 		--create-namespace \
 		--namespace traefik-gateway-api \
-		--values ./k8s/traefik-values.yaml
+		--values ./k8s/chart-values/traefik.yaml
 
 .PHONY: stack
 stack:
@@ -48,12 +48,15 @@ stack.rm:
 
 .PHONY: cilium
 cilium:
-	@echo "adding cilium into helm repo..."
+	@echo "Adding cilium into helm repo..."
 	helm repo add cilium https://helm.cilium.io/
-	@echo "installing cilium..."
+	@echo "Pull cilium image ahead & load into kind cluster"
+	docker pull quay.io/cilium/cilium:v1.17.6
+	kind load docker-image quay.io/cilium/cilium:v1.17.6
+	@echo "Installing cilium..."
 	helm install cilium cilium/cilium --version 1.17.6 \
 		--namespace kube-system \
-		--set nodeipam.enabled=true
+		--values ./k8s/chart-values/cillium.yaml
 
 .PHONY: metallb
 metallb:
@@ -63,7 +66,7 @@ metallb:
 	helm install metallb metallb/metallb \
 		--create-namespace \
 		--namespace metallb-system \
-		--values ./k8s/metallb-values.yaml
+		--values ./k8s/chart-values/metallb.yaml
 	@echo "Waiting for controller & speakers to be ready..."
 	kubectl --namespace metallb-system wait pod \
 		--all --timeout=90s \
@@ -72,3 +75,9 @@ metallb:
 		--timeout=90s --for=condition=Available
 	kubectl --namespace metallb-system wait apiservice v1beta1.metallb.io \
 		--timeout=90s --for=condition=Available
+
+.PHONY: metallb.crd
+metallb.crd:
+	kubectl apply \
+		--filename ./k8s/IPAddressPool.yaml \
+		--filename ./k8s/L2Advertisement.yaml
