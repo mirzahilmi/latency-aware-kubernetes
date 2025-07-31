@@ -11,6 +11,9 @@ all.rm:
 .PHONY: cluster
 cluster:
 	kind create cluster --config ./k8s/Cluster.yaml
+	@echo "# Loading netshoot image for network debugging..."
+	docker pull bretfisher/netshoot:latest
+	kind load docker-image bretfisher/netshoot:latest
 
 .PHONY: cluster.rm
 cluster.rm:
