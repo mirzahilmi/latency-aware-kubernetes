@@ -1,90 +1,90 @@
-use std::{
-    env,
-    sync::mpsc::{self, Receiver, Sender},
-    thread,
-    time::Duration,
-};
+use std::{env, time::Duration};
+use tracing::{debug, info};
 
 use ::prober::Prober;
+use k8s_openapi::api::core::v1::Node;
+use kube::{Api, Client, Resource, api::ListParams, core::Expression};
 use prober::{Ping, prober::LatencyAggr};
 use prost::Message;
-use rumqttc::{Client, Event, MqttOptions, Outgoing, QoS, SubscribeFilter};
+use rumqttc::{AsyncClient, Event, MqttOptions, Outgoing, QoS};
+use tokio::sync::oneshot;
 
-fn main() {
-    let targets: Vec<String> = env::args().skip(1).collect();
-    if targets.is_empty() {
-        panic!("Targets cannot be empty");
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tracing_subscriber::fmt::init();
+
+    info!("Program starting...");
+    let client = Client::try_default().await?;
+    let nodes = Api::<Node>::all(client.clone());
+
+    let exp = Expression::DoesNotExist("node-role.kubernetes.io/control-plane".to_string()).into();
+    let matcher = ListParams::default().labels_from(&exp);
+    let nodes = nodes.list_metadata(&matcher).await?;
+
+    let mut targets = Vec::with_capacity(nodes.iter().count());
+    for node in nodes.iter() {
+        let Some(name) = node.meta().name.clone() else {
+            continue;
+        };
+        targets.push(name);
     }
+    debug!("Receive probing targets {:?}", targets);
 
-    targets.iter().for_each(|target| println!("here {target}"));
-
-    let k8s_node = env::var("KUBERNETES_NODE").unwrap_or(String::from("N/A"));
-    let mqtt_host = env::var("MQTT_HOST").unwrap_or(String::from("localhost"));
-    let mqtt_port = env::var("MQTT_PORT")
-        .unwrap_or(String::from("1883"))
-        .parse()
-        .unwrap();
+    let k8s_node = env::var("KUBERNETES_NODE")?;
+    let mqtt_host = env::var("MQTT_HOST")?;
+    let mqtt_port = env::var("MQTT_PORT")?.parse()?;
+    let mqtt_result_topic = env::var("MQTT_RESULT_TOPIC")?;
     let mqtt_client_id = format!("mirzaganteng-{k8s_node}");
-    let mqtt_discover_topic =
-        env::var("MQTT_DISCOVER_TOPIC").unwrap_or(String::from("prober/discover"));
-    let mqtt_result_topic = env::var("MQTT_RESULT_TOPIC").unwrap_or(String::from("prober/result"));
 
     let mut mqtt_options = MqttOptions::new(mqtt_client_id, mqtt_host, mqtt_port);
     mqtt_options.set_keep_alive(Duration::from_secs(5));
 
-    let (client, mut conn) = Client::new(mqtt_options, 10);
+    let (client, mut conn) = AsyncClient::new(mqtt_options, 10);
     client
-        .subscribe_many([
-            SubscribeFilter {
-                path: mqtt_discover_topic.clone(),
-                qos: QoS::AtLeastOnce,
-            },
-            SubscribeFilter {
-                path: mqtt_result_topic.clone(),
-                qos: QoS::AtLeastOnce,
-            },
-        ])
-        .unwrap();
+        .subscribe(&mqtt_result_topic, QoS::AtLeastOnce)
+        .await?;
+    info!("Connected to MQTT broker");
 
-    let (tx, rx): (Sender<()>, Receiver<()>) = mpsc::channel();
+    let (tx, rx) = oneshot::channel();
 
     // pool mqtt connection in separate thread
-    thread::spawn(move || {
-        for notification in conn.iter() {
-            let event = notification.unwrap();
-            let Event::Outgoing(packet) = event else {
+    tokio::spawn(async move {
+        info!("MQTT connection pooling started");
+        while let Ok(notification) = conn.poll().await {
+            let Event::Outgoing(packet) = notification else {
                 continue;
             };
             if let Outgoing::Publish(_) = packet {
-                // send signal when publish packet received
-                // and stop connection pooling
-                tx.send(()).unwrap();
                 break;
             }
         }
+        // send signal when publish packet received
+        // and stop connection pooling
+        tx.send(()).unwrap();
     });
 
     let prober = Ping { targets };
-    let latencies = prober.ping(5).unwrap();
-    latencies[0]
-        .metrics
-        .iter()
-        .for_each(|metric| println!("DEBUG: {metric}"));
+
+    info!("Probe starting...");
+    let latencies = prober.ping(5)?;
     let aggr = LatencyAggr {
         node_source: k8s_node,
         latencies,
     };
+    debug!("Received probe result {:?}", &aggr.latencies);
 
-    if let Err(e) = client.publish(
-        &mqtt_result_topic,
-        QoS::ExactlyOnce,
-        false,
-        aggr.encode_to_vec(),
-    ) {
-        println!("Failed to publish metric: {e}");
-    }
-    println!("Published metrics");
+    client
+        .publish(
+            &mqtt_result_topic,
+            QoS::ExactlyOnce,
+            false,
+            aggr.encode_to_vec(),
+        )
+        .await?;
+    info!("Probe result published into MQTT broker");
 
     // block until signal received
-    rx.recv().unwrap();
+    rx.await?;
+
+    Ok(())
 }
