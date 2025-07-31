@@ -6,13 +6,21 @@ use k8s_openapi::api::core::v1::Node;
 use kube::{Api, Client, Resource, api::ListParams, core::Expression};
 use prober::{Ping, prober::LatencyAggr};
 use prost::Message;
-use rumqttc::{AsyncClient, Event, MqttOptions, Outgoing, QoS};
-use tokio::sync::oneshot;
+use rumqttc::{AsyncClient, MqttOptions, QoS};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
+    loop {
+        probe().await?;
+        tokio::time::sleep(Duration::from_secs(
+            env::var("INTERVAL_IN_SECONDS")?.parse()?,
+        ))
+        .await;
+    }
+}
 
+async fn probe() -> Result<(), Box<dyn std::error::Error>> {
     info!("Program starting...");
     let client = Client::try_default().await?;
     let nodes = Api::<Node>::all(client.clone());
@@ -45,22 +53,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     info!("Connected to MQTT broker");
 
-    let (tx, rx) = oneshot::channel();
-
-    // pool mqtt connection in separate thread
     tokio::spawn(async move {
         info!("MQTT connection pooling started");
-        while let Ok(notification) = conn.poll().await {
-            let Event::Outgoing(packet) = notification else {
-                continue;
-            };
-            if let Outgoing::Publish(_) = packet {
-                break;
-            }
-        }
-        // send signal when publish packet received
-        // and stop connection pooling
-        tx.send(()).unwrap();
+        while conn.poll().await.is_ok() {}
     });
 
     let prober = Ping { targets };
@@ -82,9 +77,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .await?;
     info!("Probe result published into MQTT broker");
-
-    // block until signal received
-    rx.await?;
 
     Ok(())
 }
