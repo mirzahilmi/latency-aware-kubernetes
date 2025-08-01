@@ -2,6 +2,7 @@ FROM rust:1.88.0-alpine3.20 AS build
 
 WORKDIR /tmp/build
 
+# musl maybe problematic here, search for "rust musl slow"
 RUN apk add --no-cache protoc musl-dev
 
 COPY Cargo.lock Cargo.toml ./
@@ -14,7 +15,7 @@ COPY . .
 # see https://wiki.archlinux.org/title/Rust_package_guidelines#Build
 RUN RUSTUP_TOOLCHAIN=stable \
     CARGO_TARGET_DIR=target \
-    cargo build --frozen --release --all-features
+    cargo build --frozen --release
 
 FROM alpine:3.22.1
 LABEL org.opencontainers.image.source=https://github.com/mirzahilmi/latency-aware-k8s-scheduler
