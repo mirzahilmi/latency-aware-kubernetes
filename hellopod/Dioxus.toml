@@ -5,12 +5,6 @@
 # HTML title tag content
 title = "hellopod"
 
-# include `assets` in web platform
-[web.resource]
-
-# Additional CSS style files
-style = []
-
 # Additional JavaScript files
 script = []
 
