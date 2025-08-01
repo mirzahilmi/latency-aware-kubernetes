@@ -41,6 +41,8 @@
           dioxus-cli
           cilium-cli
           wasm-bindgen-cli
+          # forgive me, i need it for tailwindcss
+          nodejs
         ];
       };
     });
