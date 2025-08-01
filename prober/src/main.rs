@@ -11,12 +11,10 @@ use rumqttc::{AsyncClient, MqttOptions, QoS};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
+    let delay = env::var("INTERVAL_IN_SECONDS")?.parse()?;
     loop {
         probe().await?;
-        tokio::time::sleep(Duration::from_secs(
-            env::var("INTERVAL_IN_SECONDS")?.parse()?,
-        ))
-        .await;
+        tokio::time::sleep(Duration::from_secs(delay)).await;
     }
 }
 
