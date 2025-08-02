@@ -43,6 +43,7 @@
           wasm-bindgen-cli
           # forgive me, i need it for tailwindcss
           nodejs
+          cloud-provider-kind
         ];
       };
     });
