@@ -26,7 +26,7 @@
       default = pkgs.mkShell {
         buildInputs = with pkgs; [
           pkg-config
-          (rust-bin.stable.latest.default.override {
+          (rust-bin.stable."1.86.0".default.override {
             extensions = [
               "rust-src"
               "rust-analyzer"
