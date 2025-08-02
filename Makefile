@@ -36,8 +36,8 @@ gateway:
 .PHONY: stack
 stack:
 	@echo "# Loading hellopod image ahead..."
-	docker pull ghcr.io/mirzahilmi/hellopod:0.1.0
-	kind load docker-image ghcr.io/mirzahilmi/hellopod:0.1.0
+	docker pull ghcr.io/mirzahilmi/hellopod:0.1.1
+	kind load docker-image ghcr.io/mirzahilmi/hellopod:0.1.1
 	kubectl apply \
 		--filename ./k8s/Namespace.yaml \
 		--filename ./k8s/Deployment.yaml \
@@ -62,7 +62,7 @@ cilium:
 		--namespace kube-system \
 		--values ./k8s/chart-values/cilium.yaml
 	@echo "# Waiting for cilium to be ready"
-	cilium status --wait
+	cilium status --wait --wait-duration 10m15s
 
 .PHONY: metallb
 metallb:
