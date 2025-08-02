@@ -3,13 +3,14 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: nginx-app-svc
+  name: hellopod-lb-svc
   namespace: riset
 spec:
   type: LoadBalancer
+  loadBalancerClass: "io.cilium/node"
   selector:
-    app: nginx-app
+    app: hellopod
   ports:
     - protocol: TCP
-      port: 80
-      targetPort: 80
+      port: 8000
+      targetPort: 8080

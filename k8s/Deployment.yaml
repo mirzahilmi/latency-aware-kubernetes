@@ -3,37 +3,59 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nginx-app
+  name: hellopod
   namespace: riset
 spec:
-  replicas: 3
+  replicas: 9
   selector:
     matchLabels:
-      app: nginx-app
+      app: hellopod
+    matchExpressions:
+      - key: node-role.kubernetes.io/control-plane
+        operator: DoesNotExist
   template:
     metadata:
       labels:
-        app: nginx-app
+        app: hellopod
     spec:
       containers:
-        - name: nginx-app
-          image: nginx:1.29.0-alpine3.22-slim
+        - name: hellopod-app
+          image: ghcr.io/mirzahilmi/hellopod:0.1.0
           ports:
-            - containerPort: 80
+            - containerPort: 8080
               protocol: TCP
-          # this thing sending the pod SIGQUIT thankyou
+
+          # # disabled for now, bcs i havent provide the endpoint yet
           # readinessProbe:
           #   httpGet:
           #     path: /
-          #     port: 80
+          #     port: 8080
+          # livenessProbe:
+          #   httpGet:
+          #     path: /
+          #     port: 8080
+
           resources:
             limits:
-              memory: 250Mi
+              memory: 500Mi
             requests:
-              memory: 250Mi
+              memory: 500Mi
+              cpu: "1"
+
+          # per-container security context
+          # lock down privileges inside the container
           securityContext:
-            allowPrivilegeEscalation: false
-            privileged: false
+            allowPrivilegeEscalation: false # prevent sudo, etc.
+            privileged: false # prevent acting like host root
+
+      terminationGracePeriodSeconds: 600
+
+      # per-pod security context
+      # enable seccomp and force non-root user
       securityContext:
         seccompProfile:
-          type: RuntimeDefault
+          type: RuntimeDefault # enable seccomp and the runtimes default profile
+
+        runAsUser: 1001
+        runAsGroup: 1001
+        runAsNonRoot: true

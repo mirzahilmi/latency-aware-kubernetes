@@ -1,6 +1,5 @@
 ---
-ipam:
-  mode: kubernetes
+kubeProxyReplacement: true
 nodeipam:
   enabled: true
 k8sServiceHost: kind-control-plane
