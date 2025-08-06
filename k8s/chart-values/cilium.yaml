@@ -1,8 +1,10 @@
 ---
 kubeProxyReplacement: true
-nodeipam:
+nodeIPAM:
   enabled: true
 k8sServiceHost: kind-control-plane
 k8sServicePort: 6443
 image:
   pullPolicy: IfNotPresent
+ipam:
+  mode: kubernetes
