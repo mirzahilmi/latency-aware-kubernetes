@@ -1,4 +1,3 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/yannh/kubernetes-json-schema/refs/heads/master/v1.32.2/deployment.json
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -89,3 +88,18 @@ spec:
         runAsUser: 1001
         runAsGroup: 1001
         runAsNonRoot: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hellopod-lb-svc
+  namespace: riset
+spec:
+  type: LoadBalancer
+  loadBalancerClass: "io.cilium/node"
+  selector:
+    app: hellopod
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8080

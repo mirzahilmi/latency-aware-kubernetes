@@ -19,20 +19,6 @@ cluster:
 cluster.rm:
 	kind delete cluster
 
-.PHONY: gateway
-gateway:
-	@echo "# Installing Gateway API CRDs from the Standard channel."
-	kubectl apply --filename https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.2.1/standard-install.yaml
-	@echo "# Installing Traefik RBACs."
-	kubectl apply --filename https://raw.githubusercontent.com/traefik/traefik/v3.4/docs/content/reference/dynamic-configuration/kubernetes-gateway-rbac.yml
-	@echo "# Installing Traefik Helm Chart"
-	helm repo add traefik https://traefik.github.io/charts
-	helm repo update
-	helm install traefik traefik/traefik \
-		--create-namespace \
-		--namespace traefik-gateway-api \
-		--values ./k8s/chart-values/traefik.yaml
-
 .PHONY: stack
 stack:
 	@echo "# Loading hellopod image ahead..."
@@ -40,15 +26,15 @@ stack:
 	kind load docker-image ghcr.io/mirzahilmi/hellopod:0.1.1
 	kubectl apply \
 		--filename ./k8s/Namespace.yaml \
-		--filename ./k8s/Deployment.yaml \
-		--filename ./k8s/Service.yaml
+		--filename ./k8s/Hellopod.yaml \
+		--filename ./k8s/Cilium.yaml
 
 .PHONY: stack.rm
 stack.rm:
 	kubectl delete \
 		--filename ./k8s/Namespace.yaml \
-		--filename ./k8s/Deployment.yaml \
-		--filename ./k8s/Service.yaml
+		--filename ./k8s/Hellopod.yaml \
+		--filename ./k8s/Cilium.yaml
 
 .PHONY: cilium
 cilium:
@@ -63,27 +49,21 @@ cilium:
 		--values ./k8s/chart-values/cilium.yaml
 	@echo "# Waiting for cilium to be ready"
 	cilium status --wait --wait-duration 10m15s
+	@echo "# Pull prometheus and grafana image ahead"
+	docker pull prom/prometheus:v2.42.0
+	docker pull docker.io/grafana/grafana:9.3.6
+	kind load docker-image prom/prometheus:v2.42.0
+	kind load docker-image docker.io/grafana/grafana:9.3.6
+	@echo "# Installing prometheus & grafana for observability"
+	kubectl apply --filename https://raw.githubusercontent.com/cilium/cilium/1.17.6/examples/kubernetes/addons/prometheus/monitoring-example.yaml
 
-.PHONY: metallb
-metallb:
-	@echo "Adding metallb into helm repo..."
-	helm repo add metallb https://metallb.github.io/metallb
-	@echo "Installing metallb..."
-	helm install metallb metallb/metallb \
-		--create-namespace \
-		--namespace metallb-system \
-		--values ./k8s/chart-values/metallb.yaml
-	@echo "Waiting for controller & speakers to be ready..."
-	kubectl --namespace metallb-system wait pod \
-		--all --timeout=90s \
-		--for=condition=Ready
-	kubectl --namespace metallb-system wait deploy metallb-controller \
-		--timeout=90s --for=condition=Available
-	kubectl --namespace metallb-system wait apiservice v1beta1.metallb.io \
-		--timeout=90s --for=condition=Available
+.PHONY: cilium.update
+cilium.update:
+	helm upgrade cilium cilium/cilium \
+		--namespace kube-system \
+		--reuse-values \
+		--values ./k8s/chart-values/cilium.yaml
 
-.PHONY: metallb.crd
-metallb.crd:
-	kubectl apply \
-		--filename ./k8s/IPAddressPool.yaml \
-		--filename ./k8s/L2Advertisement.yaml
+.PHONY: load
+load:
+	HELLOPOD_HOSTNAME=172.18.0.3 k6 run ./traffic/load_test.js
