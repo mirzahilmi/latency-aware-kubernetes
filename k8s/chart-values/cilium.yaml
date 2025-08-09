@@ -8,3 +8,21 @@ image:
   pullPolicy: IfNotPresent
 ipam:
   mode: kubernetes
+loadBalancer:
+  algorithm: maglev
+prometheus:
+  enabled: true
+operator:
+  prometheus:
+    enabled: true
+hubble:
+  enabled: true
+  metrics:
+    enabled:
+      - dns
+      - drop
+      - tcp
+      - flow
+      - port-distribution
+      - icmp
+      - httpV2:labelsContext=source_ip,destination_namespace,traffic_direction,destination_app
