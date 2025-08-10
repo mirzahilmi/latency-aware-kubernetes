@@ -40,7 +40,8 @@ ifneq ($(remote), 1)
 	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Installing cilium chart"
 	helm install cilium cilium/cilium --version 1.17.6 \
 		--namespace kube-system \
-		--values ./k8s/chart-values/cilium.yaml ./k8s/chart-values/cilium.kind.yaml
+		--values ./k8s/chart-values/cilium.yaml \
+		--values ./k8s/chart-values/cilium.kind.yaml
 	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Waiting for cilium to be healthy"
 	cilium status --wait --wait-duration 10m15s
 	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Pulling & loading prometheus w/ grafana image ahead"
@@ -71,7 +72,8 @@ ifneq ($(remote), 1)
 	helm upgrade cilium cilium/cilium \
 		--namespace kube-system \
 		--reuse-values \
-		--values ./k8s/chart-values/cilium.yaml ./k8s/chart-values/cilium.kind.yaml
+		--values ./k8s/chart-values/cilium.yaml \
+		--values ./k8s/chart-values/cilium.kind.yaml
 else
 	helm --kubeconfig ./kubeconfig.yaml upgrade cilium cilium/cilium \
 		--namespace kube-system \
