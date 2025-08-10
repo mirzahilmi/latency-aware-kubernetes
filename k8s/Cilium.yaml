@@ -1,19 +1,15 @@
 ---
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
+apiVersion: v1
+kind: Service
 metadata:
-  name: l7-visibility
-  namespace: riset
+  name: grafana-lb-svc
+  namespace: cilium-monitoring
 spec:
-  endpointSelector:
-    matchLabels:
-      "k8s:app": hellopod
-  ingress:
-    - toPorts:
-        - ports:
-            - port: "8080"
-              protocol: TCP
-          rules:
-            http: [{}]
----
-
+  type: LoadBalancer
+  loadBalancerClass: "io.cilium/node"
+  selector:
+    app: grafana
+  ports:
+    - protocol: TCP
+      port: 3000
+      targetPort: 3000
