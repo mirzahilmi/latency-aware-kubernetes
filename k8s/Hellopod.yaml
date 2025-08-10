@@ -103,3 +103,20 @@ spec:
     - protocol: TCP
       port: 8000
       targetPort: 8080
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: l7-visibility
+  namespace: riset
+spec:
+  endpointSelector:
+    matchLabels:
+      "k8s:app": hellopod
+  ingress:
+    - toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+          rules:
+            http: [{}]
