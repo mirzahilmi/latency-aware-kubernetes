@@ -9,6 +9,7 @@ all:
 	make cluster
 	make cilium
 	make stack
+	make prometheus
 
 .PHONY: bye
 bye:
@@ -44,13 +45,6 @@ ifneq ($(remote), 1)
 		--values ./k8s/chart-values/cilium.kind.yaml
 	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Waiting for cilium to be healthy"
 	cilium status --wait --wait-duration 10m15s
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Pulling & loading prometheus w/ grafana image ahead"
-	docker pull prom/prometheus:v2.42.0
-	docker pull docker.io/grafana/grafana:9.3.6
-	kind load docker-image prom/prometheus:v2.42.0
-	kind load docker-image docker.io/grafana/grafana:9.3.6
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Installing prometheus w/ grafana workload"
-	kubectl apply --filename https://raw.githubusercontent.com/cilium/cilium/1.17.6/examples/kubernetes/addons/prometheus/monitoring-example.yaml
 else
 	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Adding cilium into helm repo"
 	helm --kubeconfig ./kubeconfig.yaml repo add cilium https://helm.cilium.io/
@@ -60,10 +54,6 @@ else
 		--values ./k8s/chart-values/cilium.yaml
 	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Waiting for cilium to be healthy"
 	cilium --kubeconfig ./kubeconfig.yaml status --wait --wait-duration 10m15s
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Installing prometheus w/ grafana workload"
-	kubectl --kubeconfig ./kubeconfig.yaml apply \
-		--filename https://raw.githubusercontent.com/cilium/cilium/1.17.6/examples/kubernetes/addons/prometheus/monitoring-example.yaml \
-		--filename ./k8s/Cilium.yaml
 endif
 
 .PHONY: cilium.update
@@ -85,14 +75,8 @@ endif
 cilium.rm:
 ifneq ($(remote), 1)
 	helm uninstall cilium --namespace kube-system
-	kubectl delete \
-		--filename https://raw.githubusercontent.com/cilium/cilium/1.17.6/examples/kubernetes/addons/prometheus/monitoring-example.yaml \
-		--filename ./k8s/Cilium.yaml
 else
 	helm --kubeconfig ./kubeconfig.yaml uninstall cilium --namespace kube-system
-	kubectl --kubeconfig ./kubeconfig.yaml delete \
-		--filename https://raw.githubusercontent.com/cilium/cilium/1.17.6/examples/kubernetes/addons/prometheus/monitoring-example.yaml \
-		--filename ./k8s/Cilium.yaml
 endif
 
 .PHONY: stack
@@ -124,6 +108,44 @@ else
 		--filename ./k8s/Hellopod.yaml
 endif
 
+.PHONY: prometheus
+prometheus:
+ifneq ($(remote), 1)
+	helm install prometheus oci://ghcr.io/prometheus-community/charts/prometheus \
+		--create-namespace \
+		--namespace prometheus \
+		--values ./k8s/chart-values/prometheus.yaml
+else
+	helm --kubeconfig ./kubeconfig.yaml install prometheus oci://ghcr.io/prometheus-community/charts/prometheus \
+		--create-namespace \
+		--namespace prometheus \
+		--values ./k8s/chart-values/prometheus.yaml
+endif
+
+.PHONY: prometheus.update
+prometheus.update:
+ifneq ($(remote), 1)
+	helm upgrade prometheus oci://ghcr.io/prometheus-community/charts/prometheus \
+		--namespace prometheus \
+		--reuse-values \
+		--values ./k8s/chart-values/prometheus.yaml
+else
+	helm --kubeconfig ./kubeconfig.yaml upgrade prometheus oci://ghcr.io/prometheus-community/charts/prometheus \
+		--namespace prometheus \
+		--reuse-values \
+		--values ./k8s/chart-values/prometheus.yaml
+endif
+
+.PHONY: prometheus.rm
+prometheus.rm:
+ifneq ($(remote), 1)
+	helm uninstall prometheus --namespace prometheus
+else
+	helm --kubeconfig ./kubeconfig.yaml uninstall prometheus --namespace prometheus
+endif
+
 .PHONY: load
 load:
-	HELLOPOD_HOSTNAME=172.18.0.3 k6 run ./traffic/load_test.js
+	K6_PROMETHEUS_RW_SERVER_URL=http://$(PROMETHEUS)/api/v1/write \
+		TARGET_HOSTNAMES=$(HOSTNAMES) \
+		k6 run --out experimental-prometheus-rw ./traffic/script.js
