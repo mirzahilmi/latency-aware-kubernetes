@@ -15,6 +15,9 @@ prometheus:
 operator:
   prometheus:
     enabled: true
+# see https://github.com/cilium/cilium/pull/18306/files#diff-3b9bc05240342ca171cb91f803e21e841a98e3e5a22f2b631a455be9b65e0931R160-R161
+bpf:
+  datapathMode: lb-only
 hubble:
   enabled: true
   metrics:
