@@ -1,5 +1,7 @@
 ---
 kubeProxyReplacement: true
+# gotta enable this because prometheus helm chart cant specify loadBalancerClass
+defaultLBServiceIPAM: nodeipam
 nodeIPAM:
   enabled: true
 image:
@@ -23,4 +25,4 @@ hubble:
       - flow
       - port-distribution
       - icmp
-      - httpV2:labelsContext=source_ip,destination_namespace,traffic_direction,destination_app
+      - httpV2:labelsContext=source_ip,destination_app,traffic_direction;sourceIngressContext=identity|ip
