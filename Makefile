@@ -13,10 +13,10 @@ all:
 
 .PHONY: bye
 bye:
+	make cluster.rm
 	make prometheus.rm
 	make stack.rm
 	make cilium.rm
-	make cluster.rm
 
 .PHONY: cluster
 cluster:
@@ -92,6 +92,8 @@ ifneq ($(remote), 1)
 	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Pulling & loading hellopod image ahead"
 	docker pull ghcr.io/mirzahilmi/hellopod:0.1.1
 	kind load docker-image ghcr.io/mirzahilmi/hellopod:0.1.1
+	docker pull ghcr.io/mirzahilmi/prober:0.2.6
+	kind load docker-image ghcr.io/mirzahilmi/prober:0.2.6
 	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Applying resources"
 	kubectl apply \
 		--filename ./k8s/Namespace.yaml \
@@ -107,10 +109,12 @@ endif
 stack.rm:
 ifneq ($(remote), 1)
 	kubectl delete \
+		--ignore-not-found=true \
 		--filename ./k8s/Namespace.yaml \
 		--filename ./k8s/Hellopod.yaml
 else
 	kubectl --kubeconfig ./kubeconfig.yaml delete \
+		--ignore-not-found=true \
 		--filename ./k8s/Namespace.yaml \
 		--filename ./k8s/Hellopod.yaml
 endif
@@ -146,9 +150,9 @@ endif
 .PHONY: prometheus.rm
 prometheus.rm:
 ifneq ($(remote), 1)
-	helm uninstall prometheus --namespace prometheus
+	helm uninstall prometheus --namespace prometheus --ignore-not-found
 else
-	helm --kubeconfig ./kubeconfig.yaml uninstall prometheus --namespace prometheus
+	helm --kubeconfig ./kubeconfig.yaml uninstall prometheus --namespace prometheus --ignore-not-found
 endif
 
 .PHONY: traffic.spread
