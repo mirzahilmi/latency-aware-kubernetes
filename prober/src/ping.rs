@@ -2,7 +2,6 @@ use anyhow::{Result, anyhow};
 use regex::Regex;
 use std::collections::HashMap;
 use tokio::{process::Command, task::JoinSet};
-use tracing::info;
 
 pub async fn ping(targets: Vec<String>, n: u32) -> Result<HashMap<String, f64>> {
     let mut tasks = JoinSet::new();
