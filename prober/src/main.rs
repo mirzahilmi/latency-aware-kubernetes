@@ -1,5 +1,6 @@
 use anyhow::Result;
-use prober::{cilium, probe};
+use kube::Client;
+use prober::probe::Prober;
 use std::{collections::HashMap, env, time::Duration};
 use tokio::time;
 
@@ -7,7 +8,6 @@ use tokio::time;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
     let delay = env::var("INTERVAL_IN_SECONDS")?.parse()?;
-    let mut cost_caches = HashMap::new();
 
     let retry_threshold: u32 = match env::var("RETRY_THRESHOLD") {
         Ok(val) => val.parse().unwrap_or(3),
@@ -19,18 +19,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(_) => 5,
     };
 
-    let node_name = env::var("NODE_NAME")?;
-    let service_name = env::var("CILIUM_SERVICE_NAME")?;
+    let client = Client::try_default().await?;
+    let mut cost_caches = HashMap::new();
+    let mut prober = Prober::new(&mut cost_caches, client.clone());
 
     loop {
-        probe::probe(retry_threshold, ping_count, &mut cost_caches).await;
-
-        if let Err(e) =
-            cilium::update_cilium_service_weights(&node_name, &service_name, &cost_caches).await
-        {
-            tracing::error!("Failed to update cilium service weights: {}", e);
-        }
-
+        prober.probe(retry_threshold, ping_count).await;
         time::sleep(Duration::from_secs(delay)).await;
     }
 }
+
