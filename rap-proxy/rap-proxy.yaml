@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: rap-proxy
+  namespace: default
+spec:
+  selector:
+    matchLabels: { app: rap-proxy }
+  template:
+    metadata:
+      labels: { app: rap-proxy }
+    spec:
+      containers:
+      - name: app
+        image: rap-proxyv1:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: NODE_NAME
+          valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+        - name: POD_NAME
+          valueFrom: { fieldRef: { fieldPath: metadata.name } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rap-proxy
+  namespace: default
+  annotations:
+    # Topology Aware Routing aktif (K8s modern)
+    service.kubernetes.io/topology-mode: "Auto"
+spec:
+  selector: { app: rap-proxy }
+  ports:
+  - name: http
+    port: 80
+    targetPort: http
+  type: ClusterIP

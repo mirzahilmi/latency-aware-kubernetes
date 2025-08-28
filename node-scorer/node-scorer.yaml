@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: node-scorer
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: node-scorer
+rules:
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["nodes"]
+    verbs: ["get","list","watch"]
+  - apiGroups: [""]
+    resources: ["nodes","pods"]
+    verbs: ["get","list","watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: node-scorer
+subjects:
+  - kind: ServiceAccount
+    name: node-scorer
+    namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: node-scorer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-scorer
+  namespace: default
+  labels:
+    app: node-scorer
+spec:
+  clusterIP: None
+  selector:
+    app: node-scorer
+  ports:
+    - name: http
+      port: 8081
+      targetPort: 8081
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-scorer
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: node-scorer
+  template:
+    metadata:
+      labels:
+        app: node-scorer
+    spec:
+      serviceAccountName: node-scorer
+      containers:
+        - name: node-scorer
+          image: node-scorerv1:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8081
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # mode skor latensi dari prober {host,score}
+            - name: LATENCY_MODE
+              value: "score"
+            - name: LAT_SCORE_URL_TMPL
+              value: "http://prober-svc.default.svc.cluster.local:8080/score?node={node}"
+            - name: L_SCORE_SCALE
+              value: "1000"
+            # bobot gabungan
+            - name: W_CPU
+              value: "0.4"
+            - name: W_MEM
+              value: "0.3"
+            - name: W_LAT
+              value: "0.3"
+            # periode hitung
+            - name: INTERVAL_SEC
+              value: "60"
