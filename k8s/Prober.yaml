@@ -46,7 +46,7 @@ spec:
     spec:
       serviceAccountName: prober
       containers:
-        - name: hellopod-app
+        - name: prober-app
           image: ghcr.io/mirzahilmi/prober:0.2.6
           imagePullPolicy: Always
 

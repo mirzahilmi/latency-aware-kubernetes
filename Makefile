@@ -7,14 +7,13 @@ COLOUR_END=\033[0m
 .PHONY: all
 all:
 	make cluster
-	make cilium
 	make stack
-	make prometheus
+	# make prometheus
 
 .PHONY: bye
 bye:
 	make cluster.rm
-	make prometheus.rm
+	# make prometheus.rm
 	make stack.rm
 	make cilium.rm
 

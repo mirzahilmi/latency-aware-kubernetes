@@ -1,24 +1,34 @@
-FROM rust:1.88.0-alpine3.20 AS build
+# syntax=docker/dockerfile:1.3-labs
 
-WORKDIR /tmp/build
+# see https://gist.github.com/noelbundick/6922d26667616e2ba5c3aff59f0824cd
+# The above line is so we can use can use heredocs in Dockerfiles. No more && and \!
+# https://www.docker.com/blog/introduction-to-heredocs-in-dockerfiles/
 
-# musl maybe problematic here, search for "rust musl slow"
-RUN apk add --no-cache protoc musl-dev
+FROM rust:1.88 AS build
 
-COPY Cargo.lock Cargo.toml ./
-RUN mkdir src && echo "// mirza ganteng" > src/lib.rs
-# see https://wiki.archlinux.org/title/Rust_package_guidelines#Prepare
-RUN RUSTUP_TOOLCHAIN=stable \
-    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+# Capture dependencies
+COPY Cargo.toml Cargo.lock /app/
 
+# This step compiles only our dependencies and saves them in a layer. This is the most impactful time savings
+# Note the use of --mount=type=cache. On subsequent runs, we'll have the crates already downloaded
+WORKDIR /app
+RUN --mount=type=cache,target=/usr/local/cargo/registry cargo build --release
+
+# Copy our sources
 COPY . .
-# see https://wiki.archlinux.org/title/Rust_package_guidelines#Build
-RUN RUSTUP_TOOLCHAIN=stable \
-    CARGO_TARGET_DIR=target \
-    cargo build --frozen --release
 
-FROM alpine:3.22.1
-LABEL org.opencontainers.image.source=https://github.com/mirzahilmi/latency-aware-k8s-scheduler
-ARG APP_NAME=prober
-COPY --from=build /tmp/build/target/release/$APP_NAME /program
-CMD ["/program"]
+# A bit of magic here!
+# * We're mounting that cache again to use during the build, otherwise it's not present and we'll have to download those again - bad!
+# * EOF syntax is neat but not without its drawbacks. We need to `set -e`, otherwise a failing command is going to continue on
+# * Rust here is a bit fiddly, so we'll touch the files (even though we copied over them) to force a new build
+RUN --mount=type=cache,target=/usr/local/cargo/registry <<EOF
+  set -e
+  # update timestamps to force a new build
+  touch /app/src/main.rs
+  cargo build --release
+EOF
+
+# Again, our final image is the same - a slim base and just our app
+FROM debian:buster-slim
+COPY --from=build /app/target/release/prober /prober
+CMD ["/prober"]

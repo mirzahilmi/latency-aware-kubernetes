@@ -4,10 +4,15 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+futures = "0.3"
 regex = "1.11.1"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "process"] }
-kube = { version = "1.1.0", features = ["runtime", "derive", "ws"] }
+kube = { version = "1.1.0", features = ["runtime"] }
 k8s-openapi = { version = "0.25.0", features = ["latest"] }
 tracing = "0.1.41"
 tracing-subscriber = "0.3"
 anyhow = "1.0"
+nftables = "0.6.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+axum = "0.8.4"
