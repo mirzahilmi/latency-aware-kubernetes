@@ -1,5 +1,8 @@
 use anyhow::Result;
-use k8s_openapi::api::core::v1::Node;
+use k8s_openapi::{
+    api::core::v1::Node,
+    serde::{Deserialize, Serialize},
+};
 use kube::{Api, Client, api::ListParams, core::Expression};
 use std::{collections::HashMap, time::Duration};
 use tokio::time;
@@ -8,8 +11,8 @@ use tracing::{debug, error, info};
 use crate::ping;
 
 pub struct Prober<'a> {
-    caches: &'a mut HashMap<String, f64>,
     client: Client,
+    caches: &'a mut HashMap<String, f64>,
 }
 
 impl<'a> Prober<'a> {
@@ -70,4 +73,10 @@ impl<'a> Prober<'a> {
 
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ProbeResult {
+    pub host: String,
+    pub score: u64,
 }

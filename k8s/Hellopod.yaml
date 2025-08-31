@@ -91,31 +91,31 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: hellopod-lb-svc
+  name: hellopod-np-svc
   namespace: riset
 spec:
-  type: LoadBalancer
-  loadBalancerClass: "io.cilium/node"
+  type: NodePort
   selector:
     app: hellopod
   ports:
     - protocol: TCP
       port: 8000
       targetPort: 8080
----
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: l7-visibility
-  namespace: riset
-spec:
-  endpointSelector:
-    matchLabels:
-      "k8s:app": hellopod
-  ingress:
-    - toPorts:
-        - ports:
-            - port: "8080"
-              protocol: TCP
-          rules:
-            http: [{}]
+      nodePort: 30_000
+# ---
+# apiVersion: cilium.io/v2
+# kind: CiliumNetworkPolicy
+# metadata:
+#   name: l7-visibility
+#   namespace: riset
+# spec:
+#   endpointSelector:
+#     matchLabels:
+#       "k8s:app": hellopod
+#   ingress:
+#     - toPorts:
+#         - ports:
+#             - port: "8080"
+#               protocol: TCP
+#           rules:
+#             http: [{}]

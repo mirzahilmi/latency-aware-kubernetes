@@ -2,26 +2,26 @@
 ---
 server:
   service:
-    type: LoadBalancer
-    servicePort: 9090
+    type: NodePort
+    nodePort: 30001
   # FIXME: disabling this cause lose of data upon cluster restart, this should be enabled with
   # correct storage class provider. Temporarily disabled.
   persistentVolume:
     enabled: false
   extraFlags:
     - web.enable-remote-write-receiver
-# see https://docs.cilium.io/en/stable/observability/metrics/#id2
-extraScrapeConfigs: |-
-  - job_name: kubernetes-endpoints
-    scrape_interval: 30s
-    kubernetes_sd_configs:
-      - role: endpoints
-    relabel_configs:
-      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
-        action: keep
-        regex: true
-      - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
-        action: replace
-        target_label: __address__
-        regex: (.+)(?::\d+);(\d+)
-        replacement: $1:$2
+# # see https://docs.cilium.io/en/stable/observability/metrics/#id2
+# extraScrapeConfigs: |-
+#   - job_name: kubernetes-endpoints
+#     scrape_interval: 30s
+#     kubernetes_sd_configs:
+#       - role: endpoints
+#     relabel_configs:
+#       - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+#         action: keep
+#         regex: true
+#       - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+#         action: replace
+#         target_label: __address__
+#         regex: (.+)(?::\d+);(\d+)
+#         replacement: $1:$2

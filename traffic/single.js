@@ -32,7 +32,7 @@ export const options = {
 };
 
 export default function() {
-  const res = http.get(`http://${__ENV.TARGET_HOSTNAME}:8000`);
+  const res = http.post(`http://${__ENV.TARGET_HOSTNAME}:30000`);
   check(res, { "status is 200": (res) => res.status === 200 });
   sleep(1);
 }
