@@ -16,6 +16,9 @@ rules:
   - apiGroups: [""]
     resources: ["pods/exec", "pods/attach"]
     verbs: ["get", "create"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -44,11 +47,13 @@ spec:
       labels:
         name: prober-app
     spec:
+      # needed this to access the host layer nftables
+      hostNetwork: true
       serviceAccountName: prober
       containers:
         - name: prober-app
           image: ghcr.io/mirzahilmi/prober:0.2.6
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
 
           env:
             - name: INTERVAL_IN_SECONDS
@@ -79,3 +84,14 @@ spec:
               memory: 500Mi
             requests:
               memory: 250Mi
+
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sleep", "10"]
+
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+                - SYS_MODULE
