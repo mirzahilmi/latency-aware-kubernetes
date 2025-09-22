@@ -1,5 +1,3 @@
-pub mod balancer;
-pub mod cpu;
 pub mod cpu_watcher;
 pub mod latency_prober;
 pub mod nftables_balancer;

@@ -22,7 +22,7 @@ type EndpointChainId = String;
 pub struct NftablesService {
     pub id: String,
     pub vmap_handle: u32,
-    pub endpoints_lookup: HashMap<Hostname, Vec<EndpointChainId>>,
+    pub endpoints_by_host: HashMap<Hostname, Vec<EndpointChainId>>,
 }
 
 pub struct NftablesWatcher {
@@ -179,11 +179,11 @@ impl NftablesWatcher {
                     let Some(hostname) = ipv4_lookup.get(&ipv4) else {
                         return;
                     };
-                    match nftables_sevice.endpoints_lookup.get_mut(hostname) {
+                    match nftables_sevice.endpoints_by_host.get_mut(hostname) {
                         Some(endpoints) => endpoints.push(chain.to_owned()),
                         None => {
                             nftables_sevice
-                                .endpoints_lookup
+                                .endpoints_by_host
                                 .insert(hostname.to_owned(), vec![chain.to_owned()]);
                         }
                     }
