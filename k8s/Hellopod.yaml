@@ -20,6 +20,8 @@ spec:
       containers:
         - name: hellopod-app
           image: ghcr.io/mirzahilmi/hellopod:0.1.1
+          imagePullPolicy: IfNotPresent
+
           ports:
             - containerPort: 8080
               protocol: TCP
