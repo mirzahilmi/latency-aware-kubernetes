@@ -1,0 +1,16 @@
+flowchart TD
+    Start@{ shape: "circle", label: "Start"} --> Proc1@{ shape: "lean-r", label: "Read service nftables chains lookup" }
+    Proc1 --> Proc2@{ shape: "lean-r", label: "Read CPU EWMA data" }
+    Proc2 --> Proc3@{ shape: "lean-r", label: "Read Latency EWMA data" }
+    %% hashset hostnames -> iterate each ewma key exist in hashset & eliminate
+    Proc3 --> Proc4@{ shape: "rect", label: "Collect hostnames from service endpoints" }
+    Proc4 --> Proc5@{ shape: "rect", label: "Filters out EWMA data that dont exist in collection based on its hostname" }
+    Proc5 --> Proc6@{ shape: "rect", label: "Initialize map of hostname and weight score" }
+    Proc6 --> Proc7@{ shape: "diamond", label: "foreach" }
+    Proc7 -- Next -->Proc8@{ shape: "rect", label: "map[hostname] = cpu_ewma_lookup[hostname] + latency_ewma_lookup[hostname]" }
+    Proc8 --> Proc7
+    Proc7 -- End -->Proc9@{ shape: "rect", label: "Sum total weight score" }
+    Proc9 --> Proc10@{ shape: "rect", label: "Recalculate weight score percentages based on sum" }
+    Proc10 --> Proc11@{ shape: "rect", label: "Distribute percentages from a 100 into each hostname-grouped endpoints" }
+    Proc11 --> Proc12@{ shape: "rect", label: "Apply load balancing forwarding rule" }
+    Proc12 --> End@{ shape: "circle", label: "End"}

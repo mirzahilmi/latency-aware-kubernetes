@@ -24,7 +24,23 @@
 
     devShells = forEachSupportedSystem ({pkgs}: {
       default = pkgs.mkShell {
-        packages = with pkgs; [
+        buildInputs = with pkgs; [
+          pkg-config
+          (rust-bin.stable."1.86.0".default.override {
+            extensions = [
+              "rust-src"
+              "rust-analyzer"
+            ];
+            targets = ["wasm32-unknown-unknown"];
+          })
+          cargo-machete
+          openssl
+          lldb
+          dioxus-cli
+          cilium-cli
+          wasm-bindgen-cli
+          # forgive me, i need it for tailwindcss
+          nodejs
           cloud-provider-kind
           k6
         ];

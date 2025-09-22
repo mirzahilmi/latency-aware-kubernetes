@@ -1,3 +1,3 @@
-.PHONY: services
-services:
-	docker compose --file ./compose.dev.yaml up --detach
+.PHONY: prober
+prober:
+	INTERVAL_IN_SECONDS=10 RETRY_THRESHOLD=3 PING_COUNT=5 cargo run

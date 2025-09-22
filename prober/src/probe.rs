@@ -1,26 +1,47 @@
 use anyhow::Result;
+use futures::lock::Mutex;
 use k8s_openapi::{
     api::core::v1::Node,
     serde::{Deserialize, Serialize},
 };
-use kube::{Api, Client, api::ListParams, core::Expression};
-use std::{collections::HashMap, time::Duration};
+use kube::{Api, Client, ResourceExt, api::ListParams, core::Expression};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+    time::Duration,
+};
 use tokio::time;
 use tracing::{debug, error, info};
 
 use crate::ping;
 
-pub struct Prober<'a> {
+pub struct Prober {
     client: Client,
-    caches: &'a mut HashMap<String, f64>,
+    caches: Arc<Mutex<HashMap<String, f64>>>,
+    sleep_time: Duration,
 }
 
-impl<'a> Prober<'a> {
-    pub fn new(caches: &'a mut HashMap<String, f64>, client: Client) -> Self {
-        Self { caches, client }
+impl Prober {
+    pub fn new(
+        client: Client,
+        caches: Arc<Mutex<HashMap<String, f64>>>,
+        sleep_time: Duration,
+    ) -> Self {
+        Self {
+            client,
+            caches,
+            sleep_time,
+        }
     }
 
-    pub async fn probe(&mut self, retry_threshold: u32, ping_count: u32) {
+    pub async fn watch_probe(&mut self, retry_threshold: u32, ping_count: u32) {
+        loop {
+            time::sleep(self.sleep_time).await;
+            self.probe(retry_threshold, ping_count).await;
+        }
+    }
+
+    async fn probe(&mut self, retry_threshold: u32, ping_count: u32) {
         let mut attempts = 0;
         while attempts < retry_threshold {
             if self.try_probe(ping_count).await.is_ok() {
@@ -50,7 +71,7 @@ impl<'a> Prober<'a> {
         let matcher = ListParams::default().labels_from(&exp);
         let nodes = nodes_api.list(&matcher).await?;
 
-        let targets: Vec<String> = nodes
+        let targets_map: BTreeMap<_, _> = nodes
             .iter()
             .filter_map(|node| {
                 node.status.as_ref().and_then(|status| {
@@ -58,16 +79,22 @@ impl<'a> Prober<'a> {
                         addresses
                             .iter()
                             .find(|address| address.type_ == "InternalIP")
-                            .map(|address| address.address.clone())
+                            .map(|address| (address.address.clone(), node.name_any()))
                     })
                 })
             })
             .collect();
-        debug!("Receive probing targets {:?}", targets);
+        debug!("Receive probing targets {:?}", targets_map.keys());
 
-        let results = ping::ping(targets, ping_count).await?;
+        let results = ping::ping(targets_map.keys().cloned().collect(), ping_count).await?;
         for (target, latency) in results.into_iter() {
-            self.caches.insert(target, latency);
+            let Some(hostname) = targets_map.get(&target) else {
+                continue;
+            };
+            {
+                let mut caches = self.caches.lock().await;
+                caches.insert(hostname.to_string(), latency);
+            }
         }
         debug!("Caches updated: {:?}", self.caches);
 
@@ -76,7 +103,13 @@ impl<'a> Prober<'a> {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ProbeTarget {
+    pub hostname: String,
+    pub ip: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ProbeResult {
     pub host: String,
-    pub score: u64,
+    pub score: f64,
 }
