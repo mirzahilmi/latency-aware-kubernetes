@@ -141,7 +141,7 @@ impl NftablesBalancer {
                     expr: vec![Statement::VerdictMap(VerdictMap {
                         key: Expression::Named(NamedExpression::Numgen(Numgen {
                             mode: NgMode::Random,
-                            ng_mod: 2,
+                            ng_mod: 100,
                             offset: None,
                         })),
                         data: Expression::Named(NamedExpression::Set(backend_verdicts)),
