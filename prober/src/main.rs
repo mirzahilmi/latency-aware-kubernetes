@@ -1,20 +1,26 @@
-use std::{collections::HashMap, env, sync::Arc, time::Duration};
-
-use anyhow::Result;
-use axum::{Router, routing};
-use futures::lock::Mutex;
 use kube::Client;
 use prober::{
-    balancer::{self},
-    probe::{ProbeResult, Prober},
+    cpu_watcher::CpuCollector,
+    latency_prober::{LatencyProber, ProbeResult},
+    nftables_balancer::NftablesBalancer,
+    nftables_watcher::NftablesWatcher,
 };
-use tokio::{net::TcpListener, time};
+use std::{collections::HashMap, env, sync::Arc, time::Duration};
+
+use axum::{Router, routing};
+use futures::lock::Mutex;
+use tokio::{
+    net::TcpListener,
+    sync::broadcast::{self, Sender},
+};
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let delay: u64 = env::var("INTERVAL_IN_SECONDS")?.parse()?;
+    let delay: u64 = env::var("INTERVAL_IN_SECONDS")
+        .unwrap_or("30".to_string())
+        .parse()?;
 
     let retry_threshold: u32 = match env::var("RETRY_THRESHOLD") {
         Ok(val) => val.parse().unwrap_or(3),
@@ -26,41 +32,55 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(_) => 5,
     };
 
-    let client = Client::try_default().await?;
-    let cost_caches = Arc::new(Mutex::new(HashMap::new()));
+    let (tx, rx) = broadcast::channel(1);
 
-    let mut prober = Prober::new(
-        client.clone(),
-        cost_caches.clone(),
-        Duration::from_secs(delay),
-    );
-    tokio::spawn(async move { prober.watch_probe(retry_threshold, ping_count).await });
+    let kube_client = Client::try_default().await?;
+    let ewma_latency_by_host = Arc::new(Mutex::new(HashMap::new()));
+    let ewma_cpu_by_host = Arc::new(Mutex::new(HashMap::new()));
+    let nftables_chain_by_service = Arc::new(Mutex::new(HashMap::new()));
 
-    let nftables_chains_lookup = Arc::new(Mutex::new(HashMap::new()));
-    tokio::spawn(balancer::watch_service_updates(
-        client.clone(),
-        nftables_chains_lookup.clone(),
-    ));
-    tokio::spawn({
-        let cost_caches = cost_caches.clone();
-        let nftables_chains_lookup = nftables_chains_lookup.clone();
-        async move {
-            loop {
-                time::sleep(Duration::from_secs(delay)).await;
-                let _ =
-                    balancer::reconcile(cost_caches.clone(), nftables_chains_lookup.clone()).await;
-            }
-        }
-    });
+    let mut latency_prober = LatencyProber {
+        proc_sleep: Duration::from_secs(delay),
+        shutdown_sig: rx,
+        retry_threshold,
+        ping_count,
+        kube_client: kube_client.clone(),
+        ewma_latency_by_host: ewma_latency_by_host.clone(),
+    };
+    let mut cpu_watcher = CpuCollector {
+        proc_sleep: Duration::from_secs(delay),
+        shutdown_sig: tx.subscribe(),
+        retry_threshold,
+        kube_client: kube_client.clone(),
+        ewma_cpu_by_host: ewma_cpu_by_host.clone(),
+    };
+    let mut nftables_watcher = NftablesWatcher {
+        shutdown_sig: tx.subscribe(),
+        kube_client: kube_client.clone(),
+        nftables_chain_by_service: nftables_chain_by_service.clone(),
+    };
+    let mut nftables_balancer = NftablesBalancer {
+        proc_sleep: Duration::from_secs(delay),
+        shutdown_sig: tx.subscribe(),
+        retry_threshold,
+        nftables_chain_by_service: nftables_chain_by_service.clone(),
+        ewma_latency_by_host: ewma_latency_by_host.clone(),
+        ewma_cpu_by_host: ewma_cpu_by_host.clone(),
+    };
+
+    tokio::spawn(async move { latency_prober.run().await });
+    tokio::spawn(async move { cpu_watcher.run().await });
+    tokio::spawn(async move { nftables_watcher.run().await });
+    tokio::spawn(async move { nftables_balancer.run().await });
 
     let router = Router::new().route(
         "/scores",
         routing::get({
-            let cost_caches = cost_caches.clone();
+            let ewma_latency_lookup = ewma_latency_by_host.clone();
             async move || {
                 let mut res = vec![];
-                let cost_caches = cost_caches.lock().await;
-                for (k, v) in cost_caches.iter() {
+                let ewma_latency_lookup = ewma_latency_lookup.lock().await;
+                for (k, v) in ewma_latency_lookup.iter() {
                     res.push(ProbeResult {
                         host: k.clone(),
                         score: *v,
@@ -70,8 +90,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }),
     );
+
     let listener = TcpListener::bind("0.0.0.0:3000").await?;
-    axum::serve(listener, router).await?;
+    axum::serve(listener, router)
+        .with_graceful_shutdown(shutdown(tx))
+        .await?;
 
     Ok(())
+}
+
+async fn shutdown(tx: Sender<()>) {
+    let sigint = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to listen SIGINT");
+    };
+
+    #[cfg(unix)]
+    let sigterm = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to listen SIGTERM")
+            .recv()
+            .await;
+    };
+
+    tokio::select! {
+        _ = sigint => { tx.send(()).expect("failed to send shutdown signal"); },
+        _ = sigterm => { tx.send(()).expect("failed to send shutdown signal"); },
+    }
 }
