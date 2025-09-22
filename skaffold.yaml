@@ -1,0 +1,15 @@
+apiVersion: skaffold/v4beta13
+kind: Config
+metadata:
+  name: latency-aware-k8s-scheduler
+build:
+  artifacts:
+    - image: ghcr.io/mirzahilmi/prober
+      context: prober
+      docker:
+        dockerfile: Dockerfile
+  local:
+    useBuildkit: true
+manifests:
+  rawYaml:
+    - k8s/Prober.yaml
