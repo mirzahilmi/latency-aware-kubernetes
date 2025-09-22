@@ -27,6 +27,8 @@
         packages = with pkgs; [
           cloud-provider-kind
           k6
+          skaffold
+          mermaid-cli
         ];
       };
     });
