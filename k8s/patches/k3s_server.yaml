@@ -1,0 +1,4 @@
+# see https://docs.k3s.io/installation/configuration#configuration-file
+---
+kube-proxy-arg:
+  - "--proxy-mode nftables"
