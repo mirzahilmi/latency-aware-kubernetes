@@ -17,12 +17,6 @@ pub struct ProbeTarget {
     pub ip: String,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct ProbeResult {
-    pub host: String,
-    pub score: f64,
-}
-
 pub struct LatencyProber {
     pub proc_sleep: Duration,
     pub shutdown_sig: tokio::sync::broadcast::Receiver<()>,

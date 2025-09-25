@@ -1,10 +1,9 @@
 use kube::Client;
 use prober::{
-    cpu_watcher::CpuCollector,
-    latency_prober::{LatencyProber, ProbeResult},
-    nftables_balancer::NftablesBalancer,
+    cpu_watcher::CpuCollector, latency_prober::LatencyProber, nftables_balancer::NftablesBalancer,
     nftables_watcher::NftablesWatcher,
 };
+use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, env, sync::Arc, time::Duration};
 
 use axum::{Router, routing};
@@ -13,6 +12,14 @@ use tokio::{
     net::TcpListener,
     sync::broadcast::{self, Sender},
 };
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProbeResult {
+    hostname: String,
+    cpu_ewma_score: f64,
+    latency_ewma_score: f64,
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -76,16 +83,22 @@ async fn main() -> anyhow::Result<()> {
     let router = Router::new().route(
         "/scores",
         routing::get({
-            let ewma_latency_lookup = ewma_latency_by_host.clone();
+            let ewma_latency_by_host = ewma_latency_by_host.clone();
+            let ewma_cpu_by_host = ewma_cpu_by_host.clone();
             async move || {
                 let mut res = vec![];
-                let ewma_latency_lookup = ewma_latency_lookup.lock().await;
-                for (k, v) in ewma_latency_lookup.iter() {
+                let ewma_latency_lookup = ewma_latency_by_host.lock().await;
+                let ewma_cpu_by_host = ewma_cpu_by_host.lock().await;
+                ewma_latency_lookup.iter().for_each(|(host, ewma_latency)| {
+                    let Some(ewma_cpu) = ewma_cpu_by_host.get(host) else {
+                        return;
+                    };
                     res.push(ProbeResult {
-                        host: k.clone(),
-                        score: *v,
+                        hostname: host.clone(),
+                        cpu_ewma_score: *ewma_cpu,
+                        latency_ewma_score: *ewma_latency,
                     });
-                }
+                });
                 axum::Json(res)
             }
         }),
