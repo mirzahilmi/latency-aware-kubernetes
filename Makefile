@@ -24,6 +24,8 @@ ifneq ($(remote), 1)
 	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Loading netshoot image for network debugging"
 	docker pull bretfisher/netshoot:latest
 	kind load docker-image bretfisher/netshoot:latest
+	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Patching kind cluster to include metrics-server"
+	kubectl apply --kustomize ./k8s/patches
 else
 	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Skipping cluster creation on remote cluster"
 endif
