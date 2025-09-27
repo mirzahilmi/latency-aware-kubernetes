@@ -87,18 +87,20 @@ async fn main() -> anyhow::Result<()> {
             let ewma_cpu_by_host = ewma_cpu_by_host.clone();
             async move || {
                 let mut res = vec![];
-                let ewma_latency_lookup = ewma_latency_by_host.lock().await;
+                let ewma_latency_by_host = ewma_latency_by_host.lock().await;
                 let ewma_cpu_by_host = ewma_cpu_by_host.lock().await;
-                ewma_latency_lookup.iter().for_each(|(host, ewma_latency)| {
-                    let Some(ewma_cpu) = ewma_cpu_by_host.get(host) else {
-                        return;
-                    };
-                    res.push(ProbeResult {
-                        hostname: host.clone(),
-                        cpu_ewma_score: *ewma_cpu,
-                        latency_ewma_score: *ewma_latency,
+                ewma_latency_by_host
+                    .iter()
+                    .for_each(|(host, ewma_latency)| {
+                        let Some(ewma_cpu) = ewma_cpu_by_host.get(host) else {
+                            return;
+                        };
+                        res.push(ProbeResult {
+                            hostname: host.clone(),
+                            cpu_ewma_score: *ewma_cpu,
+                            latency_ewma_score: *ewma_latency,
+                        });
                     });
-                });
                 axum::Json(res)
             }
         }),

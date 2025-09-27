@@ -57,16 +57,15 @@ impl NftablesBalancer {
         }
         error!(
             "nftables_balancer: {}/{} attempts failed, continuing to next cycle",
-            attempts + 1,
-            self.retry_threshold
+            attempts, self.retry_threshold
         );
     }
 
     async fn reconcile(&mut self) -> anyhow::Result<()> {
         // acquire lock early to prevent all other process updates
         let nftables_chain_by_service = self.nftables_chain_by_service.lock().await;
-        let mut ewma_cpu_by_host = self.ewma_cpu_by_host.lock().await;
-        let mut ewma_latency_by_host = self.ewma_latency_by_host.lock().await;
+        let mut ewma_cpu_by_host = self.ewma_cpu_by_host.lock().await.clone();
+        let mut ewma_latency_by_host = self.ewma_latency_by_host.lock().await.clone();
 
         let mut hostnames: HashSet<String> = HashSet::new();
         nftables_chain_by_service.iter().for_each(|(_, service)| {
@@ -92,8 +91,10 @@ impl NftablesBalancer {
             *score /= total_score;
         });
 
-        // let mut
         info!("NftablesUpdate: {:?}", nftables_chain_by_service);
+        if hostname_scores_lookup.is_empty() {
+            return Ok(());
+        }
 
         let mut batch = Batch::new();
         nftables_chain_by_service
