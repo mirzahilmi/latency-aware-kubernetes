@@ -11,7 +11,7 @@ metadata:
   name: program
 rules:
   - apiGroups: [""]
-    resources: ["nodes", "pods"]
+    resources: ["nodes", "pods", "nodes/proxy"]
     verbs: ["get", "list", "watch"]
   - apiGroups: [""]
     resources: ["pods/exec", "pods/attach"]
@@ -52,7 +52,7 @@ spec:
       serviceAccountName: prober
       containers:
         - name: prober-app
-          image: ghcr.io/mirzahilmi/prober:0.2.6
+          image: ghcr.io/mirzahilmi/prober:0.3.0
           imagePullPolicy: IfNotPresent
 
           env:
