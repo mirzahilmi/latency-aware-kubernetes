@@ -57,7 +57,7 @@ impl LatencyProber {
         }
         error!(
             "prober: {}/{} attempts failed, continuing to next cycle",
-            attempts + 1,
+            attempts,
             self.retry_threshold
         );
     }
@@ -75,7 +75,7 @@ impl LatencyProber {
                 let status = node.status.as_ref()?;
                 let addresses = status.addresses.as_ref()?;
                 let address = addresses.iter().find(|addr| addr.type_ == "InternalIP")?;
-                Some((node.name_any(), address.address.clone()))
+                Some((address.address.clone(), node.name_any()))
             })
             .collect();
         info!("prober: received probing targets: {:?}", targets_map.keys());

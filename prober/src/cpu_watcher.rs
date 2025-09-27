@@ -99,7 +99,7 @@ impl CpuCollector {
         }
         error!(
             "cpu_watcher: {}/{} attempts failed, continuing to next cycle",
-            attempts + 1,
+            attempts,
             self.retry_threshold
         );
     }
