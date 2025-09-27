@@ -47,12 +47,20 @@ spec:
       labels:
         name: prober-app
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+
       # needed this to access the host layer nftables
       hostNetwork: true
       serviceAccountName: prober
       containers:
         - name: prober-app
-          image: ghcr.io/mirzahilmi/prober:0.3.0
+          image: ghcr.io/mirzahilmi/prober:0.3.1
           imagePullPolicy: IfNotPresent
 
           env:
