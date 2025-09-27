@@ -1,7 +1,7 @@
 use kube::Client;
 use prober::{
-    cpu_watcher::CpuCollector, latency_prober::LatencyProber, nftables_balancer::NftablesBalancer,
-    nftables_watcher::NftablesWatcher,
+    cpu_watcher::CpuCollector, latency_prober::LatencyProber,
+    nftables_reconciler::NftablesReconciler, nftables_watcher::NftablesWatcher,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, env, sync::Arc, time::Duration};
@@ -66,7 +66,7 @@ async fn main() -> anyhow::Result<()> {
         kube_client: kube_client.clone(),
         nftables_chain_by_service: nftables_chain_by_service.clone(),
     };
-    let mut nftables_balancer = NftablesBalancer {
+    let mut nftables_reconciler = NftablesReconciler {
         proc_sleep: Duration::from_secs(delay),
         shutdown_sig: tx.subscribe(),
         retry_threshold,
@@ -78,7 +78,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(async move { latency_prober.run().await });
     tokio::spawn(async move { cpu_watcher.run().await });
     tokio::spawn(async move { nftables_watcher.run().await });
-    tokio::spawn(async move { nftables_balancer.run().await });
+    tokio::spawn(async move { nftables_reconciler.run().await });
 
     let router = Router::new().route(
         "/scores",

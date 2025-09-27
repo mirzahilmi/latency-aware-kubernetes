@@ -17,7 +17,7 @@ use tracing::{error, info};
 
 use crate::nftables_watcher::NftablesService;
 
-pub struct NftablesBalancer {
+pub struct NftablesReconciler {
     pub proc_sleep: Duration,
     pub shutdown_sig: tokio::sync::broadcast::Receiver<()>,
     pub retry_threshold: u32,
@@ -26,7 +26,7 @@ pub struct NftablesBalancer {
     pub ewma_cpu_by_host: Arc<Mutex<HashMap<String, f64>>>,
 }
 
-impl NftablesBalancer {
+impl NftablesReconciler {
     pub async fn run(&mut self) {
         loop {
             let interval = tokio::time::sleep(self.proc_sleep);
