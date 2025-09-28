@@ -1,16 +1,32 @@
+---
+config:
+  theme: neutral
+---
 flowchart TD
-    Start@{ shape: "circle", label: "Start"} --> Proc1@{ shape: "lean-r", label: "Read service nftables chains lookup" }
-    Proc1 --> Proc2@{ shape: "lean-r", label: "Read CPU EWMA data" }
-    Proc2 --> Proc3@{ shape: "lean-r", label: "Read Latency EWMA data" }
-    %% hashset hostnames -> iterate each ewma key exist in hashset & eliminate
-    Proc3 --> Proc4@{ shape: "rect", label: "Collect hostnames from service endpoints" }
-    Proc4 --> Proc5@{ shape: "rect", label: "Filters out EWMA data that dont exist in collection based on its hostname" }
-    Proc5 --> Proc6@{ shape: "rect", label: "Initialize map of hostname and weight score" }
-    Proc6 --> Proc7@{ shape: "diamond", label: "foreach" }
-    Proc7 -- Next -->Proc8@{ shape: "rect", label: "map[hostname] = cpu_ewma_lookup[hostname] + latency_ewma_lookup[hostname]" }
-    Proc8 --> Proc7
-    Proc7 -- End -->Proc9@{ shape: "rect", label: "Sum total weight score" }
-    Proc9 --> Proc10@{ shape: "rect", label: "Recalculate weight score percentages based on sum" }
-    Proc10 --> Proc11@{ shape: "rect", label: "Distribute percentages from a 100 into each hostname-grouped endpoints" }
-    Proc11 --> Proc12@{ shape: "rect", label: "Apply load balancing forwarding rule" }
-    Proc12 --> End@{ shape: "circle", label: "End"}
+    Start@{ shape: "circle", label: "Start"} --> 1@{ shape: "lean-r", label: "Read nftables service chains" }
+    1 --> 2@{ shape: "lean-r", label: "Read CPU EWMA data" }
+    2 --> 3@{ shape: "lean-r", label: "Read Latency EWMA data" }
+    3 --> 4@{ shape: "rect", label: "Collect hostnames from service endpoints" }
+    4 --> 5@{ shape: "diamond", label: "Is hostnames empty?" }
+    5 -- True --> End1@{ shape: "circle", label: "End"}
+    5 -- False --> 6@{ shape: "rect", label: "Filters out EWMA data by its hostname that dont exist in hostnames" }
+    6 --> 7@{ shape: "hex", label: "Initialize map of hostname and weight score" }
+    7 --> 8@{ shape: "diamond", label: "Foreach hostnames" }
+    8 -- Next -->9@{ shape: "rect", label: "map[hostname] = ewma_cpu[hostname] + ewma_latency[hostname]" }
+    9 --> 8
+    8 -- Empty -->10@{ shape: "rect", label: "Sum total weight score" }
+    10 --> 11@{ shape: "rect", label: "Recalculate weight scores using current weight / total weight score" }
+    11 --> 12@{ shape: "hex", label: "Initialize batch of nftables chain rule update commands" }
+    12 --> 13@{ shape: "diamond", label: "Foreach nftables service chains" }
+    13 -- Next --> 14@{ shape: "hex", label: "Initialize start_range from 0" }
+    14 --> 15@{ shape: "rect", label: "endpoint_start_range = start_range" }
+    15 --> 16@{ shape: "rect", label: "portion_each = (start_range + weight_score - 1) / total_service_endpoints" }
+    16 --> 17@{ shape: "rect", label: "endpoint_end_range = endpoint_start_range + portion_each" }
+    17 --> 18@{ shape: "diamond", label: "Foreach service endpoints" }
+    18 -- Next --> 19@{ shape: "rect", label: "Set verdict to endpoint with start & ending probabilistic range" }
+    19 --> 20@{ shape: "rect", label: "start_range += portion_each" }
+    20 --> 18
+    18 -- Empty --> 13
+    13 -- Empty --> 21@{ shape: "rect", label: "Append batches using verdict map with key random from 100 and data is service verdicts" }
+    21 --> 22@{ shape: "rect", label: "Apply batches to update service chain verdict map" }
+    22 --> End2@{ shape: "circle", label: "End"}
