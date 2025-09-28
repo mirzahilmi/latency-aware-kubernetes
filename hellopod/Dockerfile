@@ -8,8 +8,8 @@ RUN cargo init
 COPY Cargo.toml Cargo.lock .
 RUN --mount=type=cache,target=/usr/local/cargo/registry cargo build --release
 
-RUN curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
-RUN cargo binstall dioxus-cli --root /.cargo -y --force
+# see https://github.com/DioxusLabs/dioxus/issues/4705#issuecomment-3342436625
+RUN cargo install --git https://github.com/DioxusLabs/dioxus dioxus-cli
 ENV PATH="/.cargo/bin:$PATH"
 
 COPY . .
