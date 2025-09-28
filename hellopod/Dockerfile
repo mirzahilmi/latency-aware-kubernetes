@@ -8,9 +8,9 @@ RUN cargo init
 COPY Cargo.toml Cargo.lock .
 RUN --mount=type=cache,target=/usr/local/cargo/registry cargo build --release
 
-# see https://github.com/DioxusLabs/dioxus/issues/4705#issuecomment-3342436625
-RUN cargo install --git https://github.com/DioxusLabs/dioxus dioxus-cli
-ENV PATH="/.cargo/bin:$PATH"
+# see https://github.com/DioxusLabs/dioxus/issues/4661#issuecomment-3293048773
+RUN cargo install dioxus-cli --locked --force --root /.cargo
+ENV PATH="$PATH:/.cargo/bin"
 
 COPY . .
 
