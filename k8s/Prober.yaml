@@ -60,7 +60,7 @@ spec:
       serviceAccountName: prober
       containers:
         - name: prober-app
-          image: ghcr.io/mirzahilmi/prober:0.3.1
+          image: ghcr.io/mirzahilmi/prober:0.3.2
           imagePullPolicy: IfNotPresent
 
           env:
@@ -77,15 +77,10 @@ spec:
             - name: CILIUM_SERVICE_NAME
               value: hellopod-lb-svc
 
-          # # disabled for now, bcs i havent provide the endpoint yet
-          # readinessProbe:
-          #   httpGet:
-          #     path: /
-          #     port: 8080
-          # livenessProbe:
-          #   httpGet:
-          #     path: /
-          #     port: 8080
+          readinessProbe:
+            httpGet:
+              path: /scores
+              port: 3000
 
           resources:
             limits:
