@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.3-labs
+# syntax=docker/dockerfile:1
 # see https://gist.github.com/noelbundick/6922d26667616e2ba5c3aff59f0824cd
 
 FROM rust:1.88 AS build
