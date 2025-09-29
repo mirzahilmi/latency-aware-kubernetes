@@ -20,12 +20,18 @@ bye:
 .PHONY: cluster
 cluster:
 ifneq ($(remote), 1)
-	kind create cluster --config ./k8s/Cluster.yaml
+	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Pulling kind docker image"
+	docker pull kindest/node:v1.34.0
+	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Creating kind cluster"
+	kind create cluster --image kindest/node:v1.34.0 --config ./k8s/Cluster.yaml
 	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Loading netshoot image for network debugging"
 	docker pull bretfisher/netshoot:latest
 	kind load docker-image bretfisher/netshoot:latest
 	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Patching kind cluster to include metrics-server"
-	kubectl apply --kustomize ./k8s/patches
+	kubectl apply \
+		--filename https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.8.0/components.yaml
+	kubectl patch -n kube-system deployment metrics-server --type=json \
+		-p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
 else
 	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Skipping cluster creation on remote cluster"
 endif
