@@ -9,7 +9,7 @@ use nftables::{
     batch::Batch,
     expr::{Expression, NamedExpression, NgMode, Numgen, Range, SetItem, Verdict},
     helper,
-    schema::{NfCmd, Rule},
+    schema::{NfCmd, NfListObject, Rule},
     stmt::{JumpTarget, Statement, VerdictMap},
     types::NfFamily,
 };
@@ -33,7 +33,7 @@ impl NftablesReconciler {
             tokio::select! {
                 _ = interval => self.try_reconcile().await,
                 _ = self.shutdown_sig.recv() => {
-                    info!("nftables_balancer: shutting down: breaking out process");
+                    info!("nftables_reconciler: shutting down: breaking out process");
                     break;
                 },
             }
@@ -43,20 +43,25 @@ impl NftablesReconciler {
     async fn try_reconcile(&mut self) {
         let mut attempts = 0;
         while attempts < self.retry_threshold {
+            let waiting_secs = 10;
             info!(
-                "nftables_balancer: attempting reconcile on {}/{} attempt",
+                "nftables_reconciler: waiting for {waiting_secs} seconds before trying to \
+                attempt reconciliation"
+            );
+            tokio::time::sleep(Duration::from_secs(waiting_secs)).await;
+            info!(
+                "nftables_reconciler: attempting reconcile on {}/{} attempt",
                 attempts + 1,
                 self.retry_threshold
             );
             let Err(e) = self.reconcile().await else {
                 return;
             };
-            error!("nftables_balancer: failed to reconcile: {e}");
+            error!("nftables_reconciler: failed to reconcile: {e}");
             attempts += 1;
-            tokio::time::sleep(Duration::from_secs(1)).await;
         }
         error!(
-            "nftables_balancer: {}/{} attempts failed, continuing to next cycle",
+            "nftables_reconciler: {}/{} attempts failed, continuing to next cycle",
             attempts, self.retry_threshold
         );
     }
@@ -66,6 +71,18 @@ impl NftablesReconciler {
         let nftables_chain_by_service = self.nftables_chain_by_service.lock().await;
         let mut ewma_cpu_by_host = self.ewma_cpu_by_host.lock().await.clone();
         let mut ewma_latency_by_host = self.ewma_latency_by_host.lock().await.clone();
+
+        if nftables_chain_by_service.len() == 1
+            && nftables_chain_by_service
+                .values()
+                .any(|service_chain| service_chain.endpoints_by_host.len() < 3)
+        {
+            info!(
+                "nftables_reconciler: nftables service map only contains one chain with \
+                less than 3 backends, skipping"
+            );
+            return Ok(());
+        }
 
         let mut hostnames: HashSet<String> = HashSet::new();
         nftables_chain_by_service.iter().for_each(|(_, service)| {
@@ -91,11 +108,6 @@ impl NftablesReconciler {
             *score /= total_score;
         });
 
-        info!("NftablesUpdate: {:?}", nftables_chain_by_service);
-        if hostname_scores_lookup.is_empty() {
-            return Ok(());
-        }
-
         let mut batch = Batch::new();
         nftables_chain_by_service
             .iter()
@@ -110,15 +122,22 @@ impl NftablesReconciler {
                         let Some(portion_percentage) = hostname_scores_lookup.get(hostname) else {
                             return;
                         };
-                        let portion = start_range as f64 + portion_percentage - 1.0;
+                        let portion = portion_percentage * 100.0;
                         let portion_each = (portion / backends.len() as f64).round() as u32;
+
                         backends.iter().for_each(|backend| {
                             backend_verdicts.push(SetItem::Mapping(
                                 Expression::Range(
                                     Range {
                                         range: [
                                             Expression::Number(start_range),
-                                            Expression::Number(start_range + portion_each),
+                                            Expression::Number(
+                                                if start_range + portion_each - 1 > 99 {
+                                                    99
+                                                } else {
+                                                    start_range + portion_each - 1
+                                                },
+                                            ),
                                         ],
                                     }
                                     .into(),
@@ -131,28 +150,31 @@ impl NftablesReconciler {
                         });
                     });
 
-                let comment = format!("Probabilistic Load-Balancing for Service {service_name}");
-                batch.add_cmd(NfCmd::Replace(Rule {
+                let mut rule = Rule {
                     family: NfFamily::IP,
                     table: "kube-proxy".into(),
                     chain: service.id.clone().into(),
                     handle: service.vmap_handle.into(),
-                    comment: Some(comment.into()),
-                    index: None,
-                    expr: vec![Statement::VerdictMap(VerdictMap {
-                        key: Expression::Named(NamedExpression::Numgen(Numgen {
-                            mode: NgMode::Random,
-                            ng_mod: 100,
-                            offset: None,
-                        })),
-                        data: Expression::Named(NamedExpression::Set(backend_verdicts)),
-                    })]
-                    .into(),
-                }));
+                    ..Default::default()
+                };
+                batch.add_cmd(NfCmd::Delete(NfListObject::Rule(rule.clone())));
+
+                let comment = format!("Probabilistic Load-Balancing for Service {service_name}");
+                rule.comment = Some(comment.into());
+                rule.expr = vec![Statement::VerdictMap(VerdictMap {
+                    key: Expression::Named(NamedExpression::Numgen(Numgen {
+                        mode: NgMode::Random,
+                        ng_mod: 100,
+                        offset: None,
+                    })),
+                    data: Expression::Named(NamedExpression::Set(backend_verdicts)),
+                })]
+                .into();
+                batch.add_cmd(NfCmd::Add(NfListObject::Rule(rule)));
             });
 
         let nftables = batch.to_nftables();
-        info!("nftables_balancer: applying rule: {nftables:?}");
+        info!("nftables_reconciler: applying rule: {:?}", nftables);
         helper::apply_ruleset(&nftables)?;
 
         Ok(())
