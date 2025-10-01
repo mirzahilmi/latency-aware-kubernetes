@@ -8,7 +8,7 @@ use futures::lock::Mutex;
 use nftables::{
     batch::Batch,
     expr::{Expression, NamedExpression, NgMode, Numgen, Range, SetItem, Verdict},
-    helper,
+    helper::{self},
     schema::{NfCmd, NfListObject, Rule},
     stmt::{JumpTarget, Statement, VerdictMap},
     types::NfFamily,
@@ -18,7 +18,6 @@ use tracing::{error, info};
 use crate::nftables_watcher::NftablesService;
 
 pub struct NftablesReconciler {
-    pub proc_sleep: Duration,
     pub shutdown_sig: tokio::sync::broadcast::Receiver<()>,
     pub retry_threshold: u32,
     pub nftables_chain_by_service: Arc<Mutex<HashMap<String, NftablesService>>>,
@@ -28,10 +27,11 @@ pub struct NftablesReconciler {
 
 impl NftablesReconciler {
     pub async fn run(&mut self) {
+        info!("nftables_reconciler: initialize background process");
         loop {
-            let interval = tokio::time::sleep(self.proc_sleep);
+            let cooldown = tokio::time::sleep(Duration::from_secs(10));
             tokio::select! {
-                _ = interval => self.try_reconcile().await,
+                _ = cooldown => self.try_reconcile().await,
                 _ = self.shutdown_sig.recv() => {
                     info!("nftables_reconciler: shutting down: breaking out process");
                     break;
@@ -43,12 +43,6 @@ impl NftablesReconciler {
     async fn try_reconcile(&mut self) {
         let mut attempts = 0;
         while attempts < self.retry_threshold {
-            let waiting_secs = 10;
-            info!(
-                "nftables_reconciler: waiting for {waiting_secs} seconds before trying to \
-                attempt reconciliation"
-            );
-            tokio::time::sleep(Duration::from_secs(waiting_secs)).await;
             info!(
                 "nftables_reconciler: attempting reconcile on {}/{} attempt",
                 attempts + 1,
@@ -59,6 +53,7 @@ impl NftablesReconciler {
             };
             error!("nftables_reconciler: failed to reconcile: {e}");
             attempts += 1;
+            tokio::time::sleep(Duration::from_secs(10)).await;
         }
         error!(
             "nftables_reconciler: {}/{} attempts failed, continuing to next cycle",
@@ -68,21 +63,9 @@ impl NftablesReconciler {
 
     async fn reconcile(&mut self) -> anyhow::Result<()> {
         // acquire lock early to prevent all other process updates
-        let nftables_chain_by_service = self.nftables_chain_by_service.lock().await;
+        let mut nftables_chain_by_service = self.nftables_chain_by_service.lock().await;
         let mut ewma_cpu_by_host = self.ewma_cpu_by_host.lock().await.clone();
         let mut ewma_latency_by_host = self.ewma_latency_by_host.lock().await.clone();
-
-        if nftables_chain_by_service.len() == 1
-            && nftables_chain_by_service
-                .values()
-                .any(|service_chain| service_chain.endpoints_by_host.len() < 3)
-        {
-            info!(
-                "nftables_reconciler: nftables service map only contains one chain with \
-                less than 3 backends, skipping"
-            );
-            return Ok(());
-        }
 
         let mut hostnames: HashSet<String> = HashSet::new();
         nftables_chain_by_service.iter().for_each(|(_, service)| {
@@ -91,6 +74,11 @@ impl NftablesReconciler {
 
         ewma_cpu_by_host.retain(|hostname, _| hostnames.contains(hostname));
         ewma_latency_by_host.retain(|hostname, _| hostnames.contains(hostname));
+
+        if ewma_cpu_by_host.is_empty() || ewma_latency_by_host.is_empty() {
+            info!("nftables_reconciler: EWMA CPU or EWMA Latency is still empty, skipping");
+            return Ok(());
+        }
 
         let mut hostname_scores_lookup = HashMap::new();
         hostnames.iter().for_each(|hostname| {
@@ -111,10 +99,25 @@ impl NftablesReconciler {
         let mut batch = Batch::new();
         nftables_chain_by_service
             .iter()
+            .filter(|(_, service)| !service.applied)
             .for_each(|(service_name, service)| {
+                if service.endpoints_by_host.len() == 1
+                    && service
+                        .endpoints_by_host
+                        .values()
+                        .any(|backends| backends.len() < 3)
+                {
+                    info!(
+                        "nftables_reconciler: nftables service {service_name} only contains 1 node \
+                        with less than 3 backends, skipping"
+                    );
+                    return;
+                }
+
                 // distribute weight to backends based on host score
                 let mut backend_verdicts = vec![];
                 let mut start_range: u32 = 0;
+                let mut modulo_by = 0;
                 service
                     .endpoints_by_host
                     .iter()
@@ -123,7 +126,8 @@ impl NftablesReconciler {
                             return;
                         };
                         let portion = portion_percentage * 100.0;
-                        let portion_each = (portion / backends.len() as f64).round() as u32;
+                        let portion_each = (portion / backends.len() as f64).floor() as u32;
+                        modulo_by += portion_each * backends.len() as u32;
 
                         backends.iter().for_each(|backend| {
                             backend_verdicts.push(SetItem::Mapping(
@@ -131,13 +135,7 @@ impl NftablesReconciler {
                                     Range {
                                         range: [
                                             Expression::Number(start_range),
-                                            Expression::Number(
-                                                if start_range + portion_each - 1 > 99 {
-                                                    99
-                                                } else {
-                                                    start_range + portion_each - 1
-                                                },
-                                            ),
+                                            Expression::Number(start_range + portion_each - 1),
                                         ],
                                     }
                                     .into(),
@@ -149,6 +147,10 @@ impl NftablesReconciler {
                             start_range += portion_each;
                         });
                     });
+
+                if backend_verdicts.is_empty() {
+                    return;
+                }
 
                 let mut rule = Rule {
                     family: NfFamily::IP,
@@ -164,7 +166,7 @@ impl NftablesReconciler {
                 rule.expr = vec![Statement::VerdictMap(VerdictMap {
                     key: Expression::Named(NamedExpression::Numgen(Numgen {
                         mode: NgMode::Random,
-                        ng_mod: 100,
+                        ng_mod: modulo_by,
                         offset: None,
                     })),
                     data: Expression::Named(NamedExpression::Set(backend_verdicts)),
@@ -176,6 +178,9 @@ impl NftablesReconciler {
         let nftables = batch.to_nftables();
         info!("nftables_reconciler: applying rule: {:?}", nftables);
         helper::apply_ruleset(&nftables)?;
+        nftables_chain_by_service
+            .iter_mut()
+            .for_each(|(_, service)| service.applied = true);
 
         Ok(())
     }
