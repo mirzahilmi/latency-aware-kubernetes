@@ -161,15 +161,3 @@ ifneq ($(remote), 1)
 else
 	helm --kubeconfig ./kubeconfig.yaml uninstall prometheus --namespace prometheus --ignore-not-found
 endif
-
-.PHONY: traffic.spread
-traffic.spread:
-	K6_PROMETHEUS_RW_SERVER_URL=http://$(PROMETHEUS)/api/v1/write \
-		TARGET_HOSTNAMES=$(HOSTNAMES) \
-		k6 run --out experimental-prometheus-rw ./traffic/spread.js
-
-.PHONY: traffic.single
-traffic.single:
-	K6_PROMETHEUS_RW_SERVER_URL=http://$(PROMETHEUS)/api/v1/write \
-		TARGET_HOSTNAME=$(HOSTNAME) \
-		k6 run --out experimental-prometheus-rw ./traffic/single.js
