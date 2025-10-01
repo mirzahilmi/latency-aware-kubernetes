@@ -16,8 +16,8 @@ rules:
   - apiGroups: [""]
     resources: ["pods/exec", "pods/attach"]
     verbs: ["get", "create"]
-  - apiGroups: ["discovery.k8s.io"]
-    resources: ["endpointslices"]
+  - apiGroups: [""]
+    resources: ["endpoints"]
     verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -60,7 +60,7 @@ spec:
       serviceAccountName: prober
       containers:
         - name: prober-app
-          image: ghcr.io/mirzahilmi/prober:0.3.2
+          image: ghcr.io/mirzahilmi/prober:0.3.5
           imagePullPolicy: IfNotPresent
 
           env:
