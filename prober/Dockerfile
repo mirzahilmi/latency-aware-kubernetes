@@ -21,4 +21,5 @@ FROM debian:bookworm-slim
 RUN apt-get update -y && \
   apt-get install -y iputils-ping nftables
 COPY --from=build /artifact/target/release/prober /prober
+# ENV RUST_LOG=prober=debug
 CMD ["/prober"]
