@@ -40,7 +40,6 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let (tx, rx) = broadcast::channel(1);
-
     let kube_client = Client::try_default().await?;
     let ewma_latency_by_host = Arc::new(Mutex::new(HashMap::new()));
     let ewma_cpu_by_host = Arc::new(Mutex::new(HashMap::new()));
@@ -67,7 +66,6 @@ async fn main() -> anyhow::Result<()> {
         nftables_chain_by_service: nftables_chain_by_service.clone(),
     };
     let mut nftables_reconciler = NftablesReconciler {
-        proc_sleep: Duration::from_secs(delay),
         shutdown_sig: tx.subscribe(),
         retry_threshold,
         nftables_chain_by_service: nftables_chain_by_service.clone(),

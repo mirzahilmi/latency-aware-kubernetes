@@ -1,11 +1,16 @@
-use std::{collections::HashMap, sync::Arc};
+use kube::runtime;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use futures::{TryStreamExt, lock::Mutex};
-use k8s_openapi::api::discovery::v1::EndpointSlice;
+use k8s_openapi::api::core::v1::{EndpointSubset, Endpoints};
 use kube::{
-    Api, Client, ResourceExt,
+    Api, Client,
     api::ListParams,
-    runtime::{self, WatchStreamExt, watcher::Config},
+    runtime::{WatchStreamExt, reflector::Lookup, watcher::Config},
 };
 use nftables::{
     expr::{Expression, NamedExpression, SetItem, Verdict},
@@ -23,7 +28,8 @@ type EndpointChainId = String;
 pub struct NftablesService {
     pub id: String,
     pub vmap_handle: u32,
-    pub endpoints_by_host: HashMap<Hostname, Vec<EndpointChainId>>,
+    pub applied: bool,
+    pub endpoints_by_host: HashMap<Hostname, HashSet<EndpointChainId>>,
 }
 
 pub struct NftablesWatcher {
@@ -34,15 +40,16 @@ pub struct NftablesWatcher {
 
 impl NftablesWatcher {
     pub async fn run(&mut self) -> anyhow::Result<()> {
+        info!("nftables_watcher: initialize background process");
+
         if let Err(e) = self.init().await {
             error!("nftables_watcher: failed to init nftables service chains: {e}");
             return Ok(());
         }
 
         // exclude kube-system
-        let endpoints: Api<EndpointSlice> = Api::all(self.kube_client.clone());
+        let endpoints: Api<Endpoints> = Api::all(self.kube_client.clone());
         let regex_ipv4 = Arc::new(Regex::new(r"((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}")?);
-        info!("Watching for EndpointSlice updates");
 
         // see https://kube.rs/controllers/optimization/#reducing-number-of-watched-objects
         let exclude_system_namespaces = [
@@ -70,32 +77,40 @@ impl NftablesWatcher {
         .default_backoff()
         .try_for_each(|endpointslice| {
             let regex_ipv4 = regex_ipv4.clone();
-            let mut hostname_by_ipv4 = HashMap::new();
             let nftables_chain_by_service = self.nftables_chain_by_service.clone();
-            endpointslice.endpoints.iter().for_each(|endpoint| {
-                let Some(backend) = endpoint.addresses.first() else {
-                    return;
-                };
-                let Some(hostname) = &endpoint.node_name else {
-                    return;
-                };
-                hostname_by_ipv4.insert(backend.clone(), hostname.clone());
-            });
             async move {
-                // acquire lock early to block lb update
-                let mut nftables_chain_by_service = nftables_chain_by_service.lock().await;
-
-                let Some(service) = endpointslice.labels().get("kubernetes.io/service-name") else {
+                let Some(EndpointSubset {
+                    addresses: Some(addresses),
+                    ..
+                }) = endpointslice
+                    .subsets
+                    .as_ref()
+                    .and_then(|subsets| subsets.first())
+                else {
                     return Ok(());
                 };
+                let mut hostname_by_ipv4 = HashMap::new();
+                addresses.iter().for_each(|address| {
+                    let Some(hostname) = &address.node_name else {
+                        return;
+                    };
+                    hostname_by_ipv4.insert(address.ip.clone(), hostname.clone());
+                });
+                debug!("nftables_watcher: host by ipv4 address: {hostname_by_ipv4:?}");
+
+                let mut nftables_chain_by_service = nftables_chain_by_service.lock().await;
+
+                let Some(service) = endpointslice.name() else {
+                    error!("nftables_watcher: could not endpoints service name");
+                    return Ok(());
+                };
+                let service = service.to_string();
                 if service == "kubernetes" {
                     return Ok(());
                 }
-                let service = service.to_owned();
-                info!("EndpointSlice changes for service {service} occured");
+                info!("nftables_watcher: changes occured on service {service}");
 
                 let pattern = format!(r"(service-[A-Z0-9]{{8}}-\S+\/{service}\/(?:tcp|udp)\/)");
-                debug!("Service chain regex pattern: {pattern}");
                 let regex_service_chain = match Regex::new(&pattern) {
                     Ok(regex_service_chain) => regex_service_chain,
                     Err(e) => {
@@ -118,24 +133,24 @@ impl NftablesWatcher {
                 let service_chain = match regex_service_chain.find(&chains) {
                     Some(service_chain) => service_chain,
                     None => {
-                        warn!("Cannot find service chain name");
+                        warn!("nftables_watcher: cannot find chain id for service {service}");
                         return Ok(());
                     }
                 };
                 let service_chain = service_chain.as_str().to_string();
-                debug!("Received service_chain: {service_chain}");
 
+                tokio::time::sleep(Duration::from_secs(5)).await;
                 let nftables_chain = match helper::get_current_ruleset_with_args(
                     helper::DEFAULT_NFT,
                     ["list", "chain", "ip", "kube-proxy", service_chain.as_str()],
                 ) {
                     Ok(nftables_chain) => nftables_chain,
                     Err(e) => {
-                        error!("Failed to get current nftables rulesets: {e:?}");
+                        error!("nftables_watcher: failed to get current nftables rulesets: {e:?}");
                         return Ok(());
                     }
                 };
-                debug!("Received nftables_chain: {nftables_chain:?}");
+                debug!("nftables_watcher: received nftables_chain: {nftables_chain:?}");
 
                 let mut service_chain_handle: Option<u32> = None;
                 let mut endpoint_chains: Vec<String> = vec![];
@@ -144,7 +159,6 @@ impl NftablesWatcher {
                     let NfObject::ListObject(NfListObject::Rule(rule)) = obj else {
                         return;
                     };
-                    debug!("Received rule: {rule:?}");
                     rule.expr.iter().for_each(|statement| {
                         let Statement::VerdictMap(vmap) = statement else {
                             return;
@@ -174,9 +188,11 @@ impl NftablesWatcher {
                     Some(nftable_service) => nftable_service.clone(),
                     None => NftablesService::default(),
                 };
+                nftables_sevice.applied = false;
                 nftables_sevice.id = service_chain;
                 nftables_sevice.vmap_handle = service_chain_handle;
 
+                let mut backends: HashMap<String, HashSet<String>> = HashMap::new();
                 endpoint_chains.iter().for_each(|chain| {
                     let Some(ipv4) = regex_ipv4.find(chain) else {
                         return;
@@ -185,16 +201,18 @@ impl NftablesWatcher {
                     let Some(hostname) = hostname_by_ipv4.get(&ipv4) else {
                         return;
                     };
-                    match nftables_sevice.endpoints_by_host.get_mut(hostname) {
-                        Some(endpoints) => endpoints.push(chain.to_owned()),
+                    match backends.get_mut(hostname) {
+                        Some(endpoints) => {
+                            endpoints.insert(chain.to_owned());
+                        }
                         None => {
-                            nftables_sevice
-                                .endpoints_by_host
-                                .insert(hostname.to_owned(), vec![chain.to_owned()]);
+                            backends.insert(hostname.to_owned(), HashSet::from([chain.to_owned()]));
                         }
                     }
                 });
+                nftables_sevice.endpoints_by_host = backends;
 
+                debug!("nftables_watcher: inserting service chain: {nftables_sevice:?}");
                 nftables_chain_by_service.insert(service, nftables_sevice);
 
                 Ok(())
@@ -207,7 +225,7 @@ impl NftablesWatcher {
 
     async fn init(&mut self) -> anyhow::Result<()> {
         // exclude kube-system
-        let endpoints: Api<EndpointSlice> = Api::all(self.kube_client.clone());
+        let endpoints: Api<Endpoints> = Api::all(self.kube_client.clone());
         let regex_ipv4 = Arc::new(Regex::new(r"((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}")?);
 
         // see https://kube.rs/controllers/optimization/#reducing-number-of-watched-objects
@@ -231,36 +249,47 @@ impl NftablesWatcher {
         let endpoints = endpoints
             .list(&ListParams::default().fields(exclude_system_namespaces.as_str()))
             .await?;
+
         // acquire lock early to block lb update
         let mut nftables_chain_by_service = self.nftables_chain_by_service.lock().await;
-        for endpointslice in endpoints {
-            let mut hostname_by_ipv4 = HashMap::new();
-            endpointslice.endpoints.iter().for_each(|endpoint| {
-                let Some(backend) = endpoint.addresses.first() else {
-                    return;
-                };
-                let Some(hostname) = &endpoint.node_name else {
-                    return;
-                };
-                hostname_by_ipv4.insert(backend.clone(), hostname.clone());
-            });
 
-            let Some(service) = endpointslice.labels().get("kubernetes.io/service-name") else {
-                return Ok(());
+        for endpointslice in endpoints {
+            let Some(EndpointSubset {
+                addresses: Some(addresses),
+                ..
+            }) = endpointslice
+                .subsets
+                .as_ref()
+                .and_then(|subsets| subsets.first())
+            else {
+                error!("nftables_watcher: could not retrieve endpoint addresses");
+                continue;
             };
+            let mut hostname_by_ipv4 = HashMap::new();
+            addresses.iter().for_each(|address| {
+                let Some(hostname) = &address.node_name else {
+                    return;
+                };
+                hostname_by_ipv4.insert(address.ip.clone(), hostname.clone());
+            });
+            debug!("nftables_watcher: host by ipv4 address: {hostname_by_ipv4:?}");
+
+            let Some(service) = endpointslice.name() else {
+                error!("nftables_watcher: could not endpoints service name");
+                continue;
+            };
+            let service = service.to_string();
             if service == "kubernetes" {
-                return Ok(());
+                continue;
             }
-            let service = service.to_owned();
-            info!("EndpointSlice changes for service {service} occured");
+            info!("nftables_watcher: changes occured on service {service}");
 
             let pattern = format!(r"(service-[A-Z0-9]{{8}}-\S+\/{service}\/(?:tcp|udp)\/)");
-            debug!("Service chain regex pattern: {pattern}");
             let regex_service_chain = match Regex::new(&pattern) {
                 Ok(regex_service_chain) => regex_service_chain,
                 Err(e) => {
                     error!("Failed to parse service chain regex: {e}");
-                    return Ok(());
+                    continue;
                 }
             };
 
@@ -271,31 +300,31 @@ impl NftablesWatcher {
                 Ok(chains) => chains,
                 Err(e) => {
                     error!("Failed to get current nftables rulesets: {e:?}");
-                    return Ok(());
+                    continue;
                 }
             };
 
             let service_chain = match regex_service_chain.find(&chains) {
                 Some(service_chain) => service_chain,
                 None => {
-                    warn!("Cannot find service chain name");
-                    return Ok(());
+                    warn!("nftables_watcher: cannot find chain id for service {service}");
+                    continue;
                 }
             };
             let service_chain = service_chain.as_str().to_string();
-            debug!("Received service_chain: {service_chain}");
 
+            tokio::time::sleep(Duration::from_secs(5)).await;
             let nftables_chain = match helper::get_current_ruleset_with_args(
                 helper::DEFAULT_NFT,
                 ["list", "chain", "ip", "kube-proxy", service_chain.as_str()],
             ) {
                 Ok(nftables_chain) => nftables_chain,
                 Err(e) => {
-                    error!("Failed to get current nftables rulesets: {e:?}");
-                    return Ok(());
+                    error!("nftables_watcher: failed to get current nftables rulesets: {e:?}");
+                    continue;
                 }
             };
-            debug!("Received nftables_chain: {nftables_chain:?}");
+            debug!("nftables_watcher: received nftables_chain: {nftables_chain:?}");
 
             let mut service_chain_handle: Option<u32> = None;
             let mut endpoint_chains: Vec<String> = vec![];
@@ -304,7 +333,6 @@ impl NftablesWatcher {
                 let NfObject::ListObject(NfListObject::Rule(rule)) = obj else {
                     return;
                 };
-                debug!("Received rule: {rule:?}");
                 rule.expr.iter().for_each(|statement| {
                     let Statement::VerdictMap(vmap) = statement else {
                         return;
@@ -327,16 +355,18 @@ impl NftablesWatcher {
                 });
             });
             let Some(service_chain_handle) = service_chain_handle else {
-                return Ok(());
+                continue;
             };
 
             let mut nftables_sevice = match nftables_chain_by_service.get(&service) {
                 Some(nftable_service) => nftable_service.clone(),
                 None => NftablesService::default(),
             };
+            nftables_sevice.applied = false;
             nftables_sevice.id = service_chain;
             nftables_sevice.vmap_handle = service_chain_handle;
 
+            let mut backends: HashMap<String, HashSet<String>> = HashMap::new();
             endpoint_chains.iter().for_each(|chain| {
                 let Some(ipv4) = regex_ipv4.find(chain) else {
                     return;
@@ -345,16 +375,18 @@ impl NftablesWatcher {
                 let Some(hostname) = hostname_by_ipv4.get(&ipv4) else {
                     return;
                 };
-                match nftables_sevice.endpoints_by_host.get_mut(hostname) {
-                    Some(endpoints) => endpoints.push(chain.to_owned()),
+                match backends.get_mut(hostname) {
+                    Some(endpoints) => {
+                        endpoints.insert(chain.to_owned());
+                    }
                     None => {
-                        nftables_sevice
-                            .endpoints_by_host
-                            .insert(hostname.to_owned(), vec![chain.to_owned()]);
+                        backends.insert(hostname.to_owned(), HashSet::from([chain.to_owned()]));
                     }
                 }
             });
+            nftables_sevice.endpoints_by_host = backends;
 
+            debug!("nftables_watcher: inserting service chain: {nftables_sevice:?}");
             nftables_chain_by_service.insert(service, nftables_sevice);
         }
 
