@@ -48,7 +48,7 @@ impl Metric {
                 // Convert a whole core to a millicore value
                 let alloc_m = (alloc_total * 1000) as f64;
                 // Normalize
-                cpu_m / alloc_m
+                1.0 - cpu_m / alloc_m
             }
 
             Metric::Memory { usage_bytes } => {
@@ -70,6 +70,7 @@ pub struct CpuCollector {
 
 impl CpuCollector {
     pub async fn run(&mut self) {
+        info!("cpu_watcher: initialize background process");
         loop {
             let interval = tokio::time::sleep(self.proc_sleep);
             tokio::select! {
@@ -99,8 +100,7 @@ impl CpuCollector {
         }
         error!(
             "cpu_watcher: {}/{} attempts failed, continuing to next cycle",
-            attempts,
-            self.retry_threshold
+            attempts, self.retry_threshold
         );
     }
 

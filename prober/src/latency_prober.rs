@@ -28,6 +28,7 @@ pub struct LatencyProber {
 
 impl LatencyProber {
     pub async fn run(&mut self) {
+        info!("prober: initialize background process");
         loop {
             let interval = tokio::time::sleep(self.proc_sleep);
             tokio::select! {
@@ -57,8 +58,7 @@ impl LatencyProber {
         }
         error!(
             "prober: {}/{} attempts failed, continuing to next cycle",
-            attempts,
-            self.retry_threshold
+            attempts, self.retry_threshold
         );
     }
 
@@ -90,7 +90,7 @@ impl LatencyProber {
 
             // calculate EWMA latency
             // 500ms assumed max
-            let latency_normalized = latency / 500.0;
+            let latency_normalized = 1.0 - latency / 500.0;
             {
                 let mut ewma_latency_by_host = self.ewma_latency_by_host.lock().await;
                 let ewma_calculated = match ewma_latency_by_host.get(&hostname) {
