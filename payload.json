@@ -1,0 +1,9 @@
+{
+  "nodes": {
+    "items": [
+      { "metadata": { "name": "minikube-m02" } },
+      { "metadata": { "name": "minikube-m03" } }
+    ]
+  },
+  "nodeNames": null
+}

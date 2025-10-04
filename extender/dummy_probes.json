@@ -1,0 +1,20 @@
+[
+  {
+    "hostname": "minikube-m02",
+    "ipv4": "192.168.58.3",
+    "cpuEwmaScore": 0.20,
+    "latencyEwmaScore": 0.60
+  },
+  {
+    "hostname": "minikube-m03",
+    "ipv4": "192.168.58.4",
+    "cpuEwmaScore": 0.55,
+    "latencyEwmaScore": 0.79
+  },
+  {
+    "hostname": "minikube-m04",
+    "ipv4": "192.168.58.5",
+    "cpuEwmaScore": 0.75,
+    "latencyEwmaScore": 0.85
+  }
+]
