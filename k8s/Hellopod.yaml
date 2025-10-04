@@ -1,4 +1,9 @@
 ---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: riset
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -13,6 +18,8 @@ spec:
     metadata:
       labels:
         app: hellopod
+      annotations:
+        scheduler.alpha.kubernetes.io/preferred-node-type: "worker"
     spec:
       affinity:
         nodeAffinity:
@@ -30,7 +37,6 @@ spec:
           ports:
             - containerPort: 8080
               protocol: TCP
-
           env:
             - name: POD_NAME
               valueFrom:
@@ -60,7 +66,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.hostIP
-
           # # disabled for now, bcs i havent provide the endpoint yet
           # readinessProbe:
           #   httpGet:
@@ -70,27 +75,24 @@ spec:
           #   httpGet:
           #     path: /
           #     port: 8080
-
           resources:
             limits:
               memory: 500Mi
+              cpu: 200m
             requests:
               memory: 500Mi
-
+              cpu: 100m
           # per-container security context
           # lock down privileges inside the container
           securityContext:
             allowPrivilegeEscalation: false # prevent sudo, etc.
             privileged: false # prevent acting like host root
-
       terminationGracePeriodSeconds: 600
-
       # per-pod security context
       # enable seccomp and force non-root user
       securityContext:
         seccompProfile:
           type: RuntimeDefault # enable seccomp and the runtimes default profile
-
         runAsUser: 1001
         runAsGroup: 1001
         runAsNonRoot: true
@@ -108,21 +110,4 @@ spec:
     - protocol: TCP
       port: 8000
       targetPort: 8080
-      nodePort: 30_000
-# ---
-# apiVersion: cilium.io/v2
-# kind: CiliumNetworkPolicy
-# metadata:
-#   name: l7-visibility
-#   namespace: riset
-# spec:
-#   endpointSelector:
-#     matchLabels:
-#       "k8s:app": hellopod
-#   ingress:
-#     - toPorts:
-#         - ports:
-#             - port: "8080"
-#               protocol: TCP
-#           rules:
-#             http: [{}]
+      nodePort: 30000
