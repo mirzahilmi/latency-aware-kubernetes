@@ -1,2 +1,3 @@
 kubeconfig.yaml
-Secret.yaml
+aggregator/
+aggregator/
