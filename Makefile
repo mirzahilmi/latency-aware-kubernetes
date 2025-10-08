@@ -7,15 +7,17 @@ COLOUR_END=\033[0m
 .PHONY: all
 all:
 	make cluster
+	make namespace
+	make otelcol
+	make agent
 	make stack
-	# make prometheus
 
 .PHONY: bye
 bye:
+ifeq ($(remote), 1)
+	@printf "$(COLOUR_BLUE)> %s$(COLOUR_END)\n" "Truncating resource on remote cluster is not provided"
+endif
 	make cluster.rm
-	# make prometheus.rm
-	make stack.rm
-	make cilium.rm
 
 .PHONY: cluster
 cluster:
@@ -36,61 +38,16 @@ else
 	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Skipping cluster creation on remote cluster"
 endif
 
+.PHONY: namespace
+namespace:
+	kubectl apply --filename ./k8s/Namespace.yaml
+
 .PHONY: cluster.rm
 cluster.rm:
 ifneq ($(remote), 1)
 	kind delete cluster
 else
 	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Skipping cluster removal on remote cluster"
-endif
-
-.PHONY: cilium
-cilium:
-ifneq ($(remote), 1)
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Adding cilium into helm repo"
-	helm repo add cilium https://helm.cilium.io/
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Pulling & loading cilium image ahead"
-	docker pull quay.io/cilium/cilium:v1.17.6
-	kind load docker-image quay.io/cilium/cilium:v1.17.6
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Installing cilium chart"
-	helm install cilium cilium/cilium --version 1.17.6 \
-		--namespace kube-system \
-		--values ./k8s/chart-values/cilium.yaml \
-		--values ./k8s/chart-values/cilium.kind.yaml
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Waiting for cilium to be healthy"
-	cilium status --wait --wait-duration 10m15s
-else
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Adding cilium into helm repo"
-	helm --kubeconfig ./kubeconfig.yaml repo add cilium https://helm.cilium.io/
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Installing cilium chart"
-	helm --kubeconfig ./kubeconfig.yaml install cilium cilium/cilium --version 1.17.6 \
-		--namespace kube-system \
-		--values ./k8s/chart-values/cilium.yaml
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Waiting for cilium to be healthy"
-	cilium --kubeconfig ./kubeconfig.yaml status --wait --wait-duration 10m15s
-endif
-
-.PHONY: cilium.update
-cilium.update:
-ifneq ($(remote), 1)
-	helm upgrade cilium cilium/cilium \
-		--namespace kube-system \
-		--reuse-values \
-		--values ./k8s/chart-values/cilium.yaml \
-		--values ./k8s/chart-values/cilium.kind.yaml
-else
-	helm --kubeconfig ./kubeconfig.yaml upgrade cilium cilium/cilium \
-		--namespace kube-system \
-		--reuse-values \
-		--values ./k8s/chart-values/cilium.yaml
-endif
-
-.PHONY: cilium.rm
-cilium.rm:
-ifneq ($(remote), 1)
-	helm uninstall cilium --namespace kube-system
-else
-	helm --kubeconfig ./kubeconfig.yaml uninstall cilium --namespace kube-system
 endif
 
 .PHONY: stack
@@ -101,63 +58,51 @@ ifneq ($(remote), 1)
 	kind load docker-image ghcr.io/mirzahilmi/hellopod:0.1.1
 	docker pull ghcr.io/mirzahilmi/prober:0.2.6
 	kind load docker-image ghcr.io/mirzahilmi/prober:0.2.6
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Applying resources"
-	kubectl apply \
-		--filename ./k8s/Namespace.yaml \
-		--filename ./k8s/Hellopod.yaml
-else
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Applying resources"
-	kubectl --kubeconfig ./kubeconfig.yaml apply \
-		--filename ./k8s/Namespace.yaml \
-		--filename ./k8s/Hellopod.yaml
 endif
+	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Applying resources"
+	kubectl apply --filename ./k8s/Hellopod.yaml
 
 .PHONY: stack.rm
 stack.rm:
+	kubectl delete --ignore-not-found=true \
+		--filename ./k8s/Hellopod.yaml
+
+.PHONY: agent
+agent:
 ifneq ($(remote), 1)
+else
+	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Applying resources"
+	kubectl apply \
+		--filename ./k8s/Prober.yaml \
+		--filename ./k8s/HttpRater.yaml
+endif
+
+.PHONY: agent.rm
+agent.rm:
+ifneq ($(remote), 1)
+else
+	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Deleting resources"
 	kubectl delete \
-		--ignore-not-found=true \
-		--filename ./k8s/Namespace.yaml \
-		--filename ./k8s/Hellopod.yaml
-else
-	kubectl --kubeconfig ./kubeconfig.yaml delete \
-		--ignore-not-found=true \
-		--filename ./k8s/Namespace.yaml \
-		--filename ./k8s/Hellopod.yaml
+		--filename ./k8s/Prober.yaml \
+		--filename ./k8s/HttpRater.yaml
 endif
 
-.PHONY: prometheus
-prometheus:
-ifneq ($(remote), 1)
-	helm install prometheus oci://ghcr.io/prometheus-community/charts/prometheus \
-		--create-namespace \
-		--namespace prometheus \
-		--values ./k8s/chart-values/prometheus.yaml
-else
-	helm --kubeconfig ./kubeconfig.yaml install prometheus oci://ghcr.io/prometheus-community/charts/prometheus \
-		--create-namespace \
-		--namespace prometheus \
-		--values ./k8s/chart-values/prometheus.yaml
-endif
+.PHONY: otelcol
+otelcol:
+	kubectl apply --filename ./k8s/Secret.yaml
+	helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+	helm install opentelemetry-collector open-telemetry/opentelemetry-collector \
+		--namespace riset \
+		--values ./k8s/chart-values/opentelemetry_collector.yaml
 
-.PHONY: prometheus.update
-prometheus.update:
-ifneq ($(remote), 1)
-	helm upgrade prometheus oci://ghcr.io/prometheus-community/charts/prometheus \
-		--namespace prometheus \
+.PHONY: otelcol.re
+otelcol.re:
+	helm upgrade opentelemetry-collector open-telemetry/opentelemetry-collector \
+		--namespace riset \
 		--reuse-values \
-		--values ./k8s/chart-values/prometheus.yaml
-else
-	helm --kubeconfig ./kubeconfig.yaml upgrade prometheus oci://ghcr.io/prometheus-community/charts/prometheus \
-		--namespace prometheus \
-		--reuse-values \
-		--values ./k8s/chart-values/prometheus.yaml
-endif
+		--values ./k8s/chart-values/opentelemetry_collector.yaml
 
-.PHONY: prometheus.rm
-prometheus.rm:
-ifneq ($(remote), 1)
-	helm uninstall prometheus --namespace prometheus --ignore-not-found
-else
-	helm --kubeconfig ./kubeconfig.yaml uninstall prometheus --namespace prometheus --ignore-not-found
-endif
+.PHONY: otelcol.rm
+otelcol.rm:
+	helm uninstall opentelemetry-collector --namespace riset --ignore-not-found
+
