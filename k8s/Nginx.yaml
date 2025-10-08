@@ -1,0 +1,51 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  namespace: riset
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-app
+  template:
+    metadata:
+      labels:
+        app: nginx-app
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+
+      containers:
+        - name: nginx
+          image: nginx
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - containerPort: 80
+              protocol: TCP
+
+          resources:
+            limits:
+              memory: 100Mi
+            requests:
+              memory: 100Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-cip-svc
+  namespace: riset
+spec:
+  selector:
+    app: nginx-app
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 80
