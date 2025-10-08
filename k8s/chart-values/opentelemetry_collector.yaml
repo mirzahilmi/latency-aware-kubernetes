@@ -1,0 +1,79 @@
+---
+mode: deployment
+namespaceOverride: riset
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+  tag: 0.137.0
+command:
+  name: otelcol-contrib
+
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-role.kubernetes.io/control-plane
+              operator: Exists
+            - key: kubernetes.io/arch
+              operator: In
+              values: [amd64]
+
+resources:
+  limits:
+    cpu: 1
+    memory: 1Gi
+  requests:
+    cpu: 200m
+    memory: 400Mi
+
+extraEnvs:
+  - name: OTELCOL_URL
+    valueFrom:
+      secretKeyRef:
+        name: otelcol-secrets
+        key: url
+  - name: OTELCOL_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: otelcol-secrets
+        key: token
+  - name: OTELCOL_ORG
+    valueFrom:
+      secretKeyRef:
+        name: otelcol-secrets
+        key: org
+  - name: OTELCOL_BUCKET
+    valueFrom:
+      secretKeyRef:
+        name: otelcol-secrets
+        key: bucket
+
+ports:
+  jaeger-compact:
+    enabled: false
+  jaeger-thrift:
+    enabled: false
+  jaeger-grpc:
+    enabled: false
+  zipkin:
+    enabled: false
+
+config:
+  receivers:
+    otlp: {}
+
+  exporters:
+    debug:
+      verbosity: detailed
+    influxdb:
+      endpoint: ${env:OTELCOL_URL}
+      token: ${env:OTELCOL_TOKEN}
+      org: ${env:OTELCOL_ORG}
+      bucket: ${env:OTELCOL_BUCKET}
+
+  service:
+    pipelines:
+      metrics:
+        receivers: [otlp]
+        exporters: [influxdb, debug]
