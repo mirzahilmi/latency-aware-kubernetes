@@ -25,19 +25,17 @@ struct ProbeResult {
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let delay: u64 = env::var("INTERVAL_IN_SECONDS")
-        .unwrap_or("30".to_string())
-        .parse()?;
+    let delay = env::var("INTERVAL_IN_SECONDS")?;
+    let delay: u64 = delay.parse()?;
 
-    let retry_threshold: u32 = match env::var("RETRY_THRESHOLD") {
-        Ok(val) => val.parse().unwrap_or(3),
-        Err(_) => 3,
-    };
+    let retry_threshold = env::var("RETRY_THRESHOLD")?;
+    let retry_threshold: u32 = retry_threshold.parse()?;
 
-    let ping_count: u32 = match env::var("PING_COUNT") {
-        Ok(val) => val.parse().unwrap_or(5),
-        Err(_) => 5,
-    };
+    let ping_count = env::var("PING_COUNT")?;
+    let ping_count: u32 = ping_count.parse()?;
+
+    let service_level_agreement = env::var("SERVICE_LEVEL_AGREEMENT")?;
+    let service_level_agreement: u32 = service_level_agreement.parse()?;
 
     let (tx, rx) = broadcast::channel(1);
     let kube_client = Client::try_default().await?;
@@ -50,6 +48,7 @@ async fn main() -> anyhow::Result<()> {
         shutdown_sig: rx,
         retry_threshold,
         ping_count,
+        service_level_agreement,
         kube_client: kube_client.clone(),
         ewma_latency_by_host: ewma_latency_by_host.clone(),
     };
