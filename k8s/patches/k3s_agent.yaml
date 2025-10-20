@@ -1,4 +1,5 @@
 # see https://docs.k3s.io/cli/agent
+# /etc/rancher/k3s/config.yaml.d/nftables.yaml
 ---
 kube-proxy-arg:
   - "proxy-mode=nftables"
