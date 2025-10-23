@@ -22,6 +22,7 @@ pub struct LatencyProber {
     pub shutdown_sig: tokio::sync::broadcast::Receiver<()>,
     pub retry_threshold: u32,
     pub ping_count: u32,
+    pub service_level_agreement: u32,
     pub kube_client: Client,
     pub ewma_latency_by_host: Arc<Mutex<HashMap<String, f64>>>,
 }
@@ -88,9 +89,7 @@ impl LatencyProber {
             };
             let hostname = hostname.to_string();
 
-            // calculate EWMA latency
-            // 500ms assumed max
-            let latency_normalized = 1.0 - latency / 500.0;
+            let latency_normalized = 1.0 - latency / self.service_level_agreement as f64;
             {
                 let mut ewma_latency_by_host = self.ewma_latency_by_host.lock().await;
                 let ewma_calculated = match ewma_latency_by_host.get(&hostname) {

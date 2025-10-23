@@ -1,0 +1,84 @@
+.PHONY: cilium
+cilium:
+ifneq ($(remote), 1)
+	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Adding cilium into helm repo"
+	helm repo add cilium https://helm.cilium.io/
+	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Pulling & loading cilium image ahead"
+	docker pull quay.io/cilium/cilium:v1.17.6
+	kind load docker-image quay.io/cilium/cilium:v1.17.6
+	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Installing cilium chart"
+	helm install cilium cilium/cilium --version 1.17.6 \
+		--namespace kube-system \
+		--values ./k8s/chart-values/cilium.yaml \
+		--values ./k8s/chart-values/cilium.kind.yaml
+	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Waiting for cilium to be healthy"
+	cilium status --wait --wait-duration 10m15s
+else
+	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Adding cilium into helm repo"
+	helm --kubeconfig ./kubeconfig.yaml repo add cilium https://helm.cilium.io/
+	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Installing cilium chart"
+	helm --kubeconfig ./kubeconfig.yaml install cilium cilium/cilium --version 1.17.6 \
+		--namespace kube-system \
+		--values ./k8s/chart-values/cilium.yaml
+	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Waiting for cilium to be healthy"
+	cilium --kubeconfig ./kubeconfig.yaml status --wait --wait-duration 10m15s
+endif
+
+.PHONY: cilium.update
+cilium.update:
+ifneq ($(remote), 1)
+	helm upgrade cilium cilium/cilium \
+		--namespace kube-system \
+		--reuse-values \
+		--values ./k8s/chart-values/cilium.yaml \
+		--values ./k8s/chart-values/cilium.kind.yaml
+else
+	helm --kubeconfig ./kubeconfig.yaml upgrade cilium cilium/cilium \
+		--namespace kube-system \
+		--reuse-values \
+		--values ./k8s/chart-values/cilium.yaml
+endif
+
+.PHONY: cilium.rm
+cilium.rm:
+ifneq ($(remote), 1)
+	helm uninstall cilium --namespace kube-system
+else
+	helm --kubeconfig ./kubeconfig.yaml uninstall cilium --namespace kube-system
+endif
+
+.PHONY: prometheus
+prometheus:
+ifneq ($(remote), 1)
+	helm install prometheus oci://ghcr.io/prometheus-community/charts/prometheus \
+		--create-namespace \
+		--namespace prometheus \
+		--values ./k8s/chart-values/prometheus.yaml
+else
+	helm --kubeconfig ./kubeconfig.yaml install prometheus oci://ghcr.io/prometheus-community/charts/prometheus \
+		--create-namespace \
+		--namespace prometheus \
+		--values ./k8s/chart-values/prometheus.yaml
+endif
+
+.PHONY: prometheus.update
+prometheus.update:
+ifneq ($(remote), 1)
+	helm upgrade prometheus oci://ghcr.io/prometheus-community/charts/prometheus \
+		--namespace prometheus \
+		--reuse-values \
+		--values ./k8s/chart-values/prometheus.yaml
+else
+	helm --kubeconfig ./kubeconfig.yaml upgrade prometheus oci://ghcr.io/prometheus-community/charts/prometheus \
+		--namespace prometheus \
+		--reuse-values \
+		--values ./k8s/chart-values/prometheus.yaml
+endif
+
+.PHONY: prometheus.rm
+prometheus.rm:
+ifneq ($(remote), 1)
+	helm uninstall prometheus --namespace prometheus --ignore-not-found
+else
+	helm --kubeconfig ./kubeconfig.yaml uninstall prometheus --namespace prometheus --ignore-not-found
+endif

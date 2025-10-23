@@ -5,7 +5,7 @@ metadata:
   name: hellopod
   namespace: riset
 spec:
-  replicas: 9
+  replicas: 15
   selector:
     matchLabels:
       app: hellopod
@@ -14,14 +14,34 @@ spec:
       labels:
         app: hellopod
     spec:
+      schedulerName: latency-aware-scheduler
       affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - hellopod
+              topologyKey: "kubernetes.io/hostname"
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
               - matchExpressions:
                   - key: node-role.kubernetes.io/control-plane
                     operator: DoesNotExist
-
+                  - key: node-role.kubernetes.io/worker
+                    operator: Exists
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: hellopod
       containers:
         - name: hellopod-app
           image: ghcr.io/mirzahilmi/hellopod:0.2.0
@@ -73,9 +93,11 @@ spec:
 
           resources:
             limits:
-              memory: 500Mi
+              cpu: 50m
+              # memory: 500Mi
             requests:
-              memory: 500Mi
+              cpu: 50m
+              # memory: 250Mi
 
           # per-container security context
           # lock down privileges inside the container
@@ -83,7 +105,7 @@ spec:
             allowPrivilegeEscalation: false # prevent sudo, etc.
             privileged: false # prevent acting like host root
 
-      terminationGracePeriodSeconds: 600
+      terminationGracePeriodSeconds: 120
 
       # per-pod security context
       # enable seccomp and force non-root user
@@ -108,7 +130,7 @@ spec:
     - protocol: TCP
       port: 8000
       targetPort: 8080
-      nodePort: 30_000
+      nodePort: 30000
 # ---
 # apiVersion: cilium.io/v2
 # kind: CiliumNetworkPolicy
