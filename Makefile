@@ -1,39 +1,45 @@
-# see https://demontalembert.com/colours-for-makefile/
-COLOUR_GREEN=\033[0;32m
-COLOUR_RED=\033[0;31m
-COLOUR_BLUE=\033[0;34m
-COLOUR_END=\033[0m
+# append `remote=1 only for remote cluster`
+
+GREEN=\033[0;32m
+YELLOW=\033[0;33m
+RESET=\033[0m
+
+.PHONY: help
+help:
+	@printf "$(GREEN)> %s$(RESET)\n" "No helps today, check the Makefile 😛"
 
 .PHONY: all
 all:
 	make cluster
+	make namespace
+	make otelcol
+	make prober
+	make rater
 	make stack
-	# make prometheus
 
 .PHONY: bye
 bye:
+ifeq ($(remote), 1)
+	@printf "$(YELLOW)> %s$(RESET)\n" "Truncating resource on remote cluster is not supported"
+else
 	make cluster.rm
-	# make prometheus.rm
-	make stack.rm
-	make cilium.rm
+	@printf "$(GREEN)> %s$(RESET)\n" "Bye bye 👋"
+endif
 
 .PHONY: cluster
 cluster:
 ifneq ($(remote), 1)
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Pulling kind docker image"
+	@printf "$(GREEN)> %s...$(RESET)\n" "Pulling kind docker image ahead-of-time"
 	docker pull kindest/node:v1.34.0
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Creating kind cluster"
+	@printf "$(GREEN)> %s...$(RESET)\n" "Creating kind cluster"
 	kind create cluster --image kindest/node:v1.34.0 --config ./k8s/Cluster.yaml
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Loading netshoot image for network debugging"
-	docker pull bretfisher/netshoot:latest
-	kind load docker-image bretfisher/netshoot:latest
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Patching kind cluster to include metrics-server"
+	@printf "$(GREEN)> %s...$(RESET)\n" "Patching kind cluster to include metrics-server"
 	kubectl apply \
 		--filename https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.8.0/components.yaml
 	kubectl patch -n kube-system deployment metrics-server --type=json \
 		-p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
 else
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Skipping cluster creation on remote cluster"
+	@printf "$(GREEN)> %s...$(RESET)\n" "Skipping cluster creation on remote cluster"
 endif
 
 .PHONY: cluster.rm
@@ -41,123 +47,81 @@ cluster.rm:
 ifneq ($(remote), 1)
 	kind delete cluster
 else
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Skipping cluster removal on remote cluster"
+	@printf "$(YELLOW)> %s...$(RESET)\n" "Remote cluster removal is not supported"
 endif
 
-.PHONY: cilium
-cilium:
-ifneq ($(remote), 1)
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Adding cilium into helm repo"
-	helm repo add cilium https://helm.cilium.io/
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Pulling & loading cilium image ahead"
-	docker pull quay.io/cilium/cilium:v1.17.6
-	kind load docker-image quay.io/cilium/cilium:v1.17.6
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Installing cilium chart"
-	helm install cilium cilium/cilium --version 1.17.6 \
-		--namespace kube-system \
-		--values ./k8s/chart-values/cilium.yaml \
-		--values ./k8s/chart-values/cilium.kind.yaml
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Waiting for cilium to be healthy"
-	cilium status --wait --wait-duration 10m15s
-else
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Adding cilium into helm repo"
-	helm --kubeconfig ./kubeconfig.yaml repo add cilium https://helm.cilium.io/
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Installing cilium chart"
-	helm --kubeconfig ./kubeconfig.yaml install cilium cilium/cilium --version 1.17.6 \
-		--namespace kube-system \
-		--values ./k8s/chart-values/cilium.yaml
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Waiting for cilium to be healthy"
-	cilium --kubeconfig ./kubeconfig.yaml status --wait --wait-duration 10m15s
-endif
-
-.PHONY: cilium.update
-cilium.update:
-ifneq ($(remote), 1)
-	helm upgrade cilium cilium/cilium \
-		--namespace kube-system \
-		--reuse-values \
-		--values ./k8s/chart-values/cilium.yaml \
-		--values ./k8s/chart-values/cilium.kind.yaml
-else
-	helm --kubeconfig ./kubeconfig.yaml upgrade cilium cilium/cilium \
-		--namespace kube-system \
-		--reuse-values \
-		--values ./k8s/chart-values/cilium.yaml
-endif
-
-.PHONY: cilium.rm
-cilium.rm:
-ifneq ($(remote), 1)
-	helm uninstall cilium --namespace kube-system
-else
-	helm --kubeconfig ./kubeconfig.yaml uninstall cilium --namespace kube-system
-endif
+.PHONY: namespace
+namespace:
+	kubectl apply --filename ./k8s/Namespace.yaml
 
 .PHONY: stack
 stack:
 ifneq ($(remote), 1)
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Pulling & loading hellopod image ahead"
-	docker pull ghcr.io/mirzahilmi/hellopod:0.1.1
-	kind load docker-image ghcr.io/mirzahilmi/hellopod:0.1.1
-	docker pull ghcr.io/mirzahilmi/prober:0.2.6
-	kind load docker-image ghcr.io/mirzahilmi/prober:0.2.6
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Applying resources"
-	kubectl apply \
-		--filename ./k8s/Namespace.yaml \
-		--filename ./k8s/Hellopod.yaml
-else
-	@printf "$(COLOUR_BLUE)> %s...$(COLOUR_END)\n" "Applying resources"
-	kubectl --kubeconfig ./kubeconfig.yaml apply \
-		--filename ./k8s/Namespace.yaml \
-		--filename ./k8s/Hellopod.yaml
+	@printf "$(GREEN)> %s...$(RESET)\n" "Pulling & loading hellopod image ahead-of-time"
+	docker pull ghcr.io/mirzahilmi/hellopod:0.2.0
+	kind load docker-image ghcr.io/mirzahilmi/hellopod:0.2.0
+endif
+	@printf "$(GREEN)> %s...$(RESET)\n" "Applying resources"
+	kubectl apply --filename ./k8s/Hellopod.yaml
+ifneq ($(remote), 1)
+	kubectl rollout --namespace riset status deployment hellopod
+	(&>/dev/null kubectl port-forward --namespace riset service/hellopod-np-svc 30000:8000 &)
 endif
 
 .PHONY: stack.rm
 stack.rm:
-ifneq ($(remote), 1)
-	kubectl delete \
-		--ignore-not-found=true \
-		--filename ./k8s/Namespace.yaml \
+	kubectl delete --ignore-not-found=true \
 		--filename ./k8s/Hellopod.yaml
+
+.PHONY: prober
+prober:
+ifneq ($(remote), 1)
+	@printf "$(GREEN)> %s...$(RESET)\n" "Pulling & loading prober image ahead-of-time"
+	docker pull ghcr.io/mirzahilmi/prober:0.3.5
+	kind load docker-image ghcr.io/mirzahilmi/prober:0.3.5
+endif
+	@printf "$(GREEN)> %s...$(RESET)\n" "Applying resources"
+	kubectl apply --filename ./k8s/Prober.yaml
+
+.PHONY: prober.rm
+prober.rm:
+	@printf "$(GREEN)> %s...$(RESET)\n" "Deleting resources"
+	kubectl delete --filename ./k8s/Prober.yaml
+
+.PHONY: rater
+rater:
+ifneq ($(remote), 1)
+	@printf "$(YELLOW)> %s...$(RESET)\n" "Skipping http_rater deployment on local cluster"
 else
-	kubectl --kubeconfig ./kubeconfig.yaml delete \
-		--ignore-not-found=true \
-		--filename ./k8s/Namespace.yaml \
-		--filename ./k8s/Hellopod.yaml
+	@printf "$(GREEN)> %s...$(RESET)\n" "Applying resources"
+	kubectl apply --filename ./k8s/HttpRater.yaml
 endif
 
-.PHONY: prometheus
-prometheus:
+.PHONY: rater.rm
+rater.rm:
+	@printf "$(GREEN)> %s...$(RESET)\n" "Deleting resources"
+	kubectl delete --filename ./k8s/HttpRater.yaml
+
+.PHONY: otelcol
+otelcol:
 ifneq ($(remote), 1)
-	helm install prometheus oci://ghcr.io/prometheus-community/charts/prometheus \
-		--create-namespace \
-		--namespace prometheus \
-		--values ./k8s/chart-values/prometheus.yaml
+		@printf "$(YELLOW)> %s...$(RESET)\n" "Skipping OTLP Collector deployment on local cluster"
 else
-	helm --kubeconfig ./kubeconfig.yaml install prometheus oci://ghcr.io/prometheus-community/charts/prometheus \
-		--create-namespace \
-		--namespace prometheus \
-		--values ./k8s/chart-values/prometheus.yaml
+	kubectl apply --filename ./k8s/Secret.yaml
+	helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+	helm install opentelemetry-collector open-telemetry/opentelemetry-collector \
+		--namespace riset \
+		--values ./k8s/chart-values/opentelemetry_collector.yaml
 endif
 
-.PHONY: prometheus.update
-prometheus.update:
-ifneq ($(remote), 1)
-	helm upgrade prometheus oci://ghcr.io/prometheus-community/charts/prometheus \
-		--namespace prometheus \
+.PHONY: otelcol.re
+otelcol.re:
+	helm upgrade opentelemetry-collector open-telemetry/opentelemetry-collector \
+		--namespace riset \
 		--reuse-values \
-		--values ./k8s/chart-values/prometheus.yaml
-else
-	helm --kubeconfig ./kubeconfig.yaml upgrade prometheus oci://ghcr.io/prometheus-community/charts/prometheus \
-		--namespace prometheus \
-		--reuse-values \
-		--values ./k8s/chart-values/prometheus.yaml
-endif
+		--values ./k8s/chart-values/opentelemetry_collector.yaml
 
-.PHONY: prometheus.rm
-prometheus.rm:
-ifneq ($(remote), 1)
-	helm uninstall prometheus --namespace prometheus --ignore-not-found
-else
-	helm --kubeconfig ./kubeconfig.yaml uninstall prometheus --namespace prometheus --ignore-not-found
-endif
+.PHONY: otelcol.rm
+otelcol.rm:
+	helm uninstall opentelemetry-collector --namespace riset --ignore-not-found
+

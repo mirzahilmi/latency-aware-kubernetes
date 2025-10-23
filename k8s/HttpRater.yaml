@@ -1,0 +1,213 @@
+---
+# AMD64 VM nodes
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: httprater-amd64-ens18
+  namespace: riset
+spec:
+  selector:
+    matchLabels:
+      name: httprater-amd64-ens18-app
+  template:
+    metadata:
+      labels:
+        name: httprater-amd64-ens18-app
+    spec:
+      # needed this to access the host NIC
+      hostNetwork: true
+      # manual config because hostNetwork: true
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+          - 10.43.0.10
+        searches:
+          - riset.svc.cluster.local
+          - svc.cluster.local
+
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values: [amd64]
+                  - key: primary-nic
+                    operator: In
+                    values: [ens18]
+
+      containers:
+        - name: httprater-app
+          image: ghcr.io/mirzahilmi/http_rater:0.2.0-ens18@sha256:8dd7635f4c81db361086540237f56ed4a95a1d6aa6013beccb765f86950a3bdf
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RUST_LOG
+              value: program=info
+            - name: OTELCOL_URL
+              value: grpc://opentelemetry-collector:4317
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "1000"
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+          resources:
+            limits:
+              memory: 500Mi
+            requests:
+              memory: 250Mi
+
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sleep", "10"]
+
+          securityContext:
+            # scary
+            privileged: true
+---
+# ARM64 Raspberry pi nodes (ethernet: end0)
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: httprater-arm64-end0
+  namespace: riset
+spec:
+  selector:
+    matchLabels:
+      name: httprater-arm64-end0-app
+  template:
+    metadata:
+      labels:
+        name: httprater-arm64-end0-app
+    spec:
+      # needed this to access the host NIC
+      hostNetwork: true
+      # manual config because hostNetwork: true
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+          - 10.43.0.10
+        searches:
+          - riset.svc.cluster.local
+          - svc.cluster.local
+
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values: [arm64]
+                  - key: primary-nic
+                    operator: In
+                    values: [end0]
+
+      containers:
+        - name: httprater-app
+          image: ghcr.io/mirzahilmi/http_rater:0.2.0-end0@sha256:f0ca300aeb6a8a0cbe70010ff6f1ad493ca3d56398c6a82321e6745698f13fdb
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RUST_LOG
+              value: program=info
+            - name: OTELCOL_URL
+              value: grpc://opentelemetry-collector:4317
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "1000"
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+          resources:
+            limits:
+              memory: 500Mi
+            requests:
+              memory: 250Mi
+
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sleep", "10"]
+
+          securityContext:
+            # scary
+            privileged: true
+---
+# ARM64 Raspberry pi nodes (wireless: wlan0)
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: httprater-arm64-wlan0
+  namespace: riset
+spec:
+  selector:
+    matchLabels:
+      name: httprater-arm64-wlan0-app
+  template:
+    metadata:
+      labels:
+        name: httprater-arm64-wlan0-app
+    spec:
+      # needed this to access the host NIC
+      hostNetwork: true
+      # manual config because hostNetwork: true
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+          - 10.43.0.10
+        searches:
+          - riset.svc.cluster.local
+          - svc.cluster.local
+
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values: [arm64]
+                  - key: primary-nic
+                    operator: In
+                    values: [wlan0]
+
+      containers:
+        - name: httprater-app
+          image: ghcr.io/mirzahilmi/http_rater:0.2.0-wlan0@sha256:a13c90ccd1eebf08f27426c52a57504c3c6b4fb6c83f59187c1c5c886edefe2c
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RUST_LOG
+              value: program=info
+            - name: OTELCOL_URL
+              value: grpc://opentelemetry-collector:4317
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "1000"
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+          resources:
+            limits:
+              memory: 500Mi
+            requests:
+              memory: 250Mi
+
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sleep", "10"]
+
+          securityContext:
+            # scary
+            privileged: true

@@ -25,7 +25,7 @@
     devShells = forEachSupportedSystem ({pkgs}: {
       default = pkgs.mkShell {
         packages = with pkgs; [
-          cloud-provider-kind
+          kubernetes-helm
           k6
           skaffold
           mermaid-cli
