@@ -141,20 +141,20 @@ spec:
             # scary
             privileged: true
 ---
-# ARM64 Raspberry pi nodes (wireless: wlan0)
+# ARM64 Raspberry pi nodes (ethernet: eth0)
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: httprater-arm64-wlan0
+  name: httprater-arm64-eth0
   namespace: riset
 spec:
   selector:
     matchLabels:
-      name: httprater-arm64-wlan0-app
+      name: httprater-arm64-eth0-app
   template:
     metadata:
       labels:
-        name: httprater-arm64-wlan0-app
+        name: httprater-arm64-eth0-app
     spec:
       # needed this to access the host NIC
       hostNetwork: true
@@ -179,11 +179,11 @@ spec:
                     values: [arm64]
                   - key: primary-nic
                     operator: In
-                    values: [wlan0]
+                    values: [eth0]
 
       containers:
         - name: httprater-app
-          image: ghcr.io/mirzahilmi/http_rater:0.2.0-wlan0@sha256:a13c90ccd1eebf08f27426c52a57504c3c6b4fb6c83f59187c1c5c886edefe2c
+          image: ghcr.io/mirzahilmi/http_rater:0.2.0-eth0@sha256:f47c08c7abbb5cb06b1b07f2f05f6af5c437a9b39ed31e4b4eedc9e50c0d062a
           imagePullPolicy: IfNotPresent
           env:
             - name: RUST_LOG
