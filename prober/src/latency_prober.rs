@@ -9,7 +9,7 @@ use regex::Regex;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::time;
 use tokio::{process::Command, task::JoinSet};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ProbeTarget {
@@ -100,6 +100,10 @@ impl LatencyProber {
                     }
                     None => latency_normalized,
                 };
+                if ewma_calculated > 1.0 {
+                    warn!("prober: {hostname}: exceeding SLA: skipping");
+                    continue;
+                }
                 ewma_latency_by_host.insert(hostname, ewma_calculated);
             }
         }

@@ -1,25 +1,21 @@
-# syntax=docker/dockerfile:1
-# see https://gist.github.com/noelbundick/6922d26667616e2ba5c3aff59f0824cd
-
 FROM rust:1.88 AS build
-WORKDIR /artifact
+WORKDIR /src
 
-# Capture dependencies
 RUN cargo init
 COPY Cargo.toml Cargo.lock .
-RUN --mount=type=cache,target=/usr/local/cargo/registry cargo build --release
+RUN \
+  --mount=type=cache,target=/usr/local/cargo/registry \
+  cargo fetch
 
-COPY . .
+RUN \
+  --mount=type=cache,target=/usr/local/cargo/registry \
+  --mount=type=bind,target=. \
+  cargo build --release --frozen --target-dir /artifact
 
-RUN --mount=type=cache,target=/usr/local/cargo/registry <<EOF
-  set -e
-  touch /artifact/src/main.rs
-  cargo build --release
-EOF
+FROM cgr.dev/chainguard/wolfi-base:latest
+WORKDIR /bin
 
-FROM debian:bookworm-slim
-RUN apt-get update -y && \
-  apt-get install -y iputils-ping nftables
-COPY --from=build /artifact/target/release/prober /prober
-# ENV RUST_LOG=prober=debug
-CMD ["/prober"]
+RUN apk add nftables
+COPY --from=build /artifact/release/prober /prober
+
+CMD ["/bin/prober"]
