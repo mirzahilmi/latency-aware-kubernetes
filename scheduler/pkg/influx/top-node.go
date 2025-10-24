@@ -3,6 +3,7 @@ package influx
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"github.com/rs/zerolog/log"
 )
@@ -14,7 +15,7 @@ func (s *Service) QueryTopNode(bucket string) (string, float64, error) {
 
 	query := fmt.Sprintf(`
 from(bucket: "%s")
-  |> range(start: -1m)
+  |> range(start: -10m)
   |> filter(fn: (r) => r["_measurement"] == "http_packet")
   |> filter(fn: (r) => r["_field"] == "counter")
   |> aggregateWindow(every: 1m, fn: last)
@@ -37,11 +38,20 @@ from(bucket: "%s")
 	for result.Next() {
 		record := result.Record()
 		node, _ := record.ValueByKey("node_name").(string)
-		value, _ := record.Value().(float64)
-		if node != "" {
-			topNode = node
-			reqRate = value
+		if node == "" {
+			node, _ = record.ValueByKey("node").(string)
 		}
+		value, _ := record.Value().(float64)
+
+		if node == "" || math.IsNaN(value) || value == 0 {
+			log.Debug().Msgf("[INFLUX] Skip node %s: invalid or zero value (%.2f)", node, value)
+			continue
+		}
+		
+		topNode = node
+		reqRate = value
+		log.Debug().Msgf("[INFLUX] Record: node=%s value=%.2f", node, value)
+		break
 	}
 
 	if err := result.Err(); err != nil {

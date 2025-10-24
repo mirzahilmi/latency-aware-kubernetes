@@ -39,21 +39,19 @@ func (e *Extender) HandleFilter(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// 🧠 Latency threshold (misal SLA 400 ms → 0.25 di skala 0..1)
 		if score.LatencyEwmaScore < 0.25 {
 			result.FailedNodes[nodeName] = "latency below threshold"
 			log.Debug().Msgf("[FILTER] %s failed: latency too low (%.3f)", nodeName, score.LatencyEwmaScore)
 			continue
 		}
 
-		// ⚙️ CPU threshold (misal minimal 0.8)
-		if score.CPUEwmaScore < 0.8 {
+		if score.CPUEwmaScore < 0.2 {
 			result.FailedNodes[nodeName] = "cpu below threshold"
 			log.Debug().Msgf("[FILTER] %s failed: CPU score %.3f < 0.8", nodeName, score.CPUEwmaScore)
 			continue
 		}
 
-		// ✅ Node lolos semua syarat
+		// Node lolos semua syarat
 		result.Nodes.Items = append(result.Nodes.Items, node)
 		log.Debug().Msgf("[FILTER] %s passed (CPU: %.3f, Latency: %.3f)", nodeName, score.CPUEwmaScore, score.LatencyEwmaScore)
 	}

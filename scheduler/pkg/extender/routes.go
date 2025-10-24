@@ -8,8 +8,6 @@ import (
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/influx"
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/prober"
 	"github.com/rs/zerolog/log"
-
-	
 )
 
 func NewExtender(influxService *influx.Service, bucket string) *Extender {
@@ -17,10 +15,10 @@ func NewExtender(influxService *influx.Service, bucket string) *Extender {
 		influxService: influxService,
 		bucket:        bucket,
 		proberScores:  make(map[string]prober.ScoreData),
-		distribution:  NewPodDistribution(1), // minimal 1 pod per node
+		// distribution:  NewPodDistribution(1), // minimal 1 pod per node
 	}
 	go e.refreshMetricsLoop()
-	go e.refreshDistributionLoop()
+	//go e.refreshDistributionLoop()
 	return e
 }
 
@@ -37,15 +35,15 @@ func (e *Extender) refreshMetricsLoop() {
 		e.topNode = topNode
 		log.Info().Msgf("[EXTENDER] Found top node: %s", topNode)
 
-		trafficMap, err := e.influxService.QueryTrafficByNode(e.bucket)
-		if err != nil {
-			log.Warn().Err(err).Msg("[EXTENDER] Failed to query traffic map from InfluxDB")
-		} else {
-			e.mu.Lock()
-			e.cachedTraffic = trafficMap
-			e.mu.Unlock()
-			log.Info().Msgf("[EXTENDER] Cached traffic map for %d nodes", len(trafficMap))
-		}
+		// trafficMap, err := e.influxService.QueryTrafficByNode(e.bucket)
+		// if err != nil {
+		// 	log.Warn().Err(err).Msg("[EXTENDER] Failed to query traffic map from InfluxDB")
+		// } else {
+		// 	e.mu.Lock()
+		// 	e.cachedTraffic = trafficMap
+		// 	e.mu.Unlock()
+		// 	log.Info().Msgf("[EXTENDER] Cached traffic map for %d nodes", len(trafficMap))
+		// }
 
 		scores, err := prober.FetchScoresFromNode(topNode)
 		if err != nil {
