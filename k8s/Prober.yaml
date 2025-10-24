@@ -60,10 +60,12 @@ spec:
       serviceAccountName: prober
       containers:
         - name: prober-app
-          image: ghcr.io/mirzahilmi/prober:0.3.5
+          image: ghcr.io/mirzahilmi/prober:0.3.6
           imagePullPolicy: IfNotPresent
-
+          command: ["/prober"]
           env:
+            - name: SERVICE_LEVEL_AGREEMENT
+              value: "400"
             - name: INTERVAL_IN_SECONDS
               value: "30"
             - name: RETRY_THRESHOLD

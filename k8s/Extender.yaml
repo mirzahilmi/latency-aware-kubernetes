@@ -1,0 +1,115 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: latency-aware-extender
+  namespace: kube-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: latency-aware-extender
+  namespace: kube-system
+  labels:
+    app: latency-aware-extender
+    component: scheduler-extender
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: latency-aware-extender
+  template:
+    metadata:
+      labels:
+        app: latency-aware-extender
+        component: scheduler-extender
+    spec:
+      serviceAccountName: latency-aware-extender
+      tolerations:
+      - key: "node-role.kubernetes.io/control-plane"
+        operator: "Exists"
+        effect: "NoSchedule"
+      - key: "node-role.kubernetes.io/master"
+        operator: "Exists"
+        effect: "NoSchedule"
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      containers:
+      - name: extender
+        image: adindaysafitri/extender:0.2.9
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3001
+          name: http
+          protocol: TCP
+        env:
+        - name: RUST_LOG
+          value: "extender=debug,info"
+        - name: PROMETHEUS_URL
+          value: "http://prometheus.monitoring.svc.cluster.local:9090"
+        - name: PROBER_BASE
+          value: "prober.riset.svc.cluster.local"
+        - name: PROBER_PORT
+          value: "3000"
+        - name: PROBER_NAMESPACE 
+          value: "riset"
+        - name: PROM_QUERY
+          value: 'topk(1, sum by (node) (rate(traefik_entrypoint_requests_total{entrypoint="web"}[1m])))'
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        livenessProbe:            
+          httpGet:
+            path: /healthz
+            port: 3001
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 3001
+          initialDelaySeconds: 5
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: latency-aware-extender-service
+  namespace: kube-system
+  labels:
+    app: latency-aware-extender
+    component: scheduler-extender
+spec:
+  type: ClusterIP
+  selector:
+    app: latency-aware-extender
+  ports:
+  - port: 3001
+    targetPort: 3001
+    protocol: TCP
+    name: http
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: latency-aware-extender-role
+rules:
+- apiGroups: [""]
+  resources: ["nodes", "pods"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: latency-aware-extender-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: latency-aware-extender-role
+subjects:
+- kind: ServiceAccount
+  name: latency-aware-extender
+  namespace: kube-system
