@@ -1,0 +1,270 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: latency-scheduler-config
+  namespace: riset
+data:
+  config.yaml: |
+    apiVersion: kubescheduler.config.k8s.io/v1
+    kind: KubeSchedulerConfiguration
+    leaderElection:
+      leaderElect: true
+      resourceName: latency-aware-scheduler
+      resourceNamespace: riset
+    profiles:
+      - schedulerName: latency-aware-scheduler
+        plugins:
+          score:
+            disabled:
+              - name: NodeResourcesBalancedAllocation
+              - name: NodeResourcesLeastAllocated 
+    extenders:
+      - urlPrefix: "http://latency-extender-svc.riset.svc.cluster.local:3001"
+        filterVerb: "filter"
+        prioritizeVerb: "score"
+        weight: 10 
+        enableHTTPS: false
+        nodeCacheCapable: false
+        managedResources: []  
+        ignorable: false  
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: latency-scheduler-env
+  namespace: riset
+data:
+  CONFIG_PATH: "/tmp/config.json"
+  LOG_LEVEL: "debug"
+  PROBER_ENDPOINT: "scores"
+  PROBER_PORT: "3000"
+  PORT_EXTENDER: "3001"
+  POD_NAMESPACE: "riset"
+  DUMMY_MODE: "false"  
+  TZ: "Asia/Jakarta"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: latency-scheduler-configfile
+  namespace: riset
+data:
+  config.json: |
+    {
+      "Port": 3001,
+      "LogLevel": "debug",
+      "ProberEndpoint": "scores",
+      "ProberPort": 3000,
+      "weightLatency": 0.4,
+      "weightCPU": 0.3,
+      "weightTraffic": 0.3
+    }
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: latency-aware-scheduler
+  namespace: riset
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: riset
+  name: metrics-reader
+rules:
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  namespace: riset
+  name: metrics-reader-binding
+subjects:
+  - kind: ServiceAccount
+    name: latency-aware-scheduler
+    namespace: riset
+roleRef:
+  kind: Role
+  name: metrics-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: latency-extender-role
+rules:
+  # Scheduler permissions
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["create", "get", "update"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["delete", "get", "list", "watch", "update"]
+  - apiGroups: [""]
+    resources: ["bindings", "pods/binding"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["pods/status"]
+    verbs: ["patch", "update"]
+  - apiGroups: [""]
+    resources: ["replicationcontrollers", "services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps", "extensions"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims", "persistentvolumes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses", "csinodes", "csidrivers", "csistoragecapacities"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create", "get", "list", "update"]
+  - apiGroups: ["policy"]
+    resources: ["evictions"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: latency-scheduler-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: latency-extender-role
+subjects:
+  - kind: ServiceAccount
+    name: latency-aware-scheduler
+    namespace: riset
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: latency-aware-scheduler
+  namespace: riset
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: latency-aware-scheduler
+  template:
+    metadata:
+      labels:
+        app: latency-aware-scheduler
+    spec:
+      serviceAccountName: latency-aware-scheduler
+      tolerations:
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "node-role.kubernetes.io/master"
+          operator: "Exists"
+          effect: "NoSchedule"
+      nodeSelector:
+        kubernetes.io/hostname: k8s-master-1-vm
+      containers:
+      # Container 1: Kube-scheduler
+      - name: kube-scheduler
+        image: registry.k8s.io/kube-scheduler:v1.29.0
+        command:
+          - kube-scheduler
+          - --config=/etc/scheduler/config.yaml
+          - --v=4  # Verbosity level (0-10, 4 = info+debug)
+        volumeMounts:
+        - name: scheduler-config
+          mountPath: /etc/scheduler
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      # Container 2: Latency Extender
+      - name: latency-extender
+        image: adindaysafitri/scheduler:0.0.26
+        imagePullPolicy: Always  
+        ports:
+          - name: http
+            containerPort: 3001
+            protocol: TCP
+        envFrom:
+          - secretRef:
+              name: influx-secrets
+          - configMapRef:
+              name: latency-scheduler-env
+        volumeMounts:
+          - name: scheduler-configfile
+            mountPath: /tmp/config.json
+            subPath: config.json
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3001
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        # Readiness probe: cek apakah container siap menerima traffic
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3001
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3    
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      
+      volumes:
+      - name: scheduler-config
+        configMap:
+          name: latency-scheduler-config
+      - name: scheduler-configfile
+        configMap:
+          name: latency-scheduler-configfile
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: latency-extender-svc
+  namespace: riset
+  labels:
+    app: latency-aware-scheduler
+spec:
+  type: ClusterIP
+  selector:
+    app: latency-aware-scheduler
+  ports:
+    - name: http
+      protocol: TCP
+      port: 3001
+      targetPort: 3001
+  sessionAffinity: None
