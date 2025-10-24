@@ -49,7 +49,7 @@ spec:
             - name: OTELCOL_URL
               value: grpc://opentelemetry-collector:4317
             - name: OTEL_METRIC_EXPORT_INTERVAL
-              value: "1000"
+              value: "20000"
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
@@ -120,7 +120,7 @@ spec:
             - name: OTELCOL_URL
               value: grpc://opentelemetry-collector:4317
             - name: OTEL_METRIC_EXPORT_INTERVAL
-              value: "1000"
+              value: "20000"
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
@@ -191,7 +191,7 @@ spec:
             - name: OTELCOL_URL
               value: grpc://opentelemetry-collector:4317
             - name: OTEL_METRIC_EXPORT_INTERVAL
-              value: "1000"
+              value: "20000"
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
