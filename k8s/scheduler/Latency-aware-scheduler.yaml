@@ -38,6 +38,7 @@ data:
   LOG_LEVEL: "debug"
   PROBER_ENDPOINT: "scores"
   PROBER_PORT: "3000"
+  PORT_EXTENDER: "3001"
   POD_NAMESPACE: "riset"
   DUMMY_MODE: "false"  
   TZ: "Asia/Jakarta"
@@ -202,7 +203,7 @@ spec:
             memory: 512Mi
       # Container 2: Latency Extender
       - name: latency-extender
-        image: adindaysafitri/scheduler:0.0.22
+        image: adindaysafitri/scheduler:0.0.26
         imagePullPolicy: Always  
         ports:
           - name: http

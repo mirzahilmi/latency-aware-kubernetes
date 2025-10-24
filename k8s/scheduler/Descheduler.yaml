@@ -26,7 +26,7 @@ spec:
         kubernetes.io/hostname: k8s-master-1-vm  
       containers:
         - name: latency-descheduler
-          image: adindaysafitri/scheduler:0.0.22
+          image: adindaysafitri/scheduler:0.0.26
           imagePullPolicy: Always  
           command: ["/app/descheduler"]
           envFrom:

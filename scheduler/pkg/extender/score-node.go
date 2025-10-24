@@ -12,26 +12,26 @@ func ScoreNode(nodeName string, proberData map[string]prober.ScoreData, trafficM
 		return 0
 	}
 
-	// normalisasi traffic
-	maxTraffic := 0.0
-	for _, v := range trafficMap {
-		if v > maxTraffic {
-			maxTraffic = v
-		}
-	}
-	if maxTraffic == 0 {
-		maxTraffic = 1
-	}
-	rawTraffic := trafficMap[nodeName]
-	trafficNormalized := rawTraffic / maxTraffic
-	if trafficNormalized < 0 {
-		trafficNormalized = 0
-	}
+	// // normalisasi traffic
+	// maxTraffic := 0.0
+	// for _, v := range trafficMap {
+	// 	if v > maxTraffic {
+	// 		maxTraffic = v
+	// 	}
+	// }
+	// if maxTraffic == 0 {
+	// 	maxTraffic = 1
+	// }
+	// rawTraffic := trafficMap[nodeName]
+	// trafficNormalized := rawTraffic / maxTraffic
+	// if trafficNormalized < 0 {
+	// 	trafficNormalized = 0
+	// }
 
 	lat := scoreData.LatencyEwmaScore
 	cpu := scoreData.CPUEwmaScore
 
-	weighted := (WeightLatency*lat + WeightCPU*cpu + WeightTraffic*trafficNormalized) * SCALE_FACTOR
+	weighted := (WeightLatency*lat + WeightCPU*cpu) * SCALE_FACTOR
 	final := int(math.Round(weighted))
 	if final < 0 {
 		final = 0

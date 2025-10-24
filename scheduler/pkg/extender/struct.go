@@ -17,7 +17,6 @@ type Extender struct {
 	cachedTraffic map[string]float64 
 	clientset     *kubernetes.Clientset
 	namespace     string
-	distribution  *PodDistribution // ✅ tambah field ini
 }
 
 
@@ -61,8 +60,8 @@ type HostPriority struct {
 type HostPriorityList []HostPriority
 
 var (
-	LatencyThreshold = 0.17
-	CPUThreshold     = 0.20
+	// LatencyThreshold = 0.25
+	// CPUThreshold     = 0.8
 	WeightLatency = 0.4
 	WeightCPU     = 0.3
 	WeightTraffic = 0.3

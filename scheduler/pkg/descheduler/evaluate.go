@@ -26,10 +26,6 @@ func (d *Descheduler) Evaluate(ctx context.Context) {
 		return
 	}
 
-	if d.prevTopNode == topNode {
-		log.Info().Msgf("[DESCHEDULER] Top node unchanged: %s", topNode)
-	}
-
 	// if topNOde changes -> triggering pod evictions
 	if topNode != d.prevTopNode {
 		log.Warn().Msgf("[DESCHEDULER] Top node changed: %s → %s (%.2f req/min)",
@@ -41,6 +37,6 @@ func (d *Descheduler) Evaluate(ctx context.Context) {
 		// Update prevTopNode
 		d.prevTopNode = topNode
 	} else {
-		log.Info().Msgf("[DESCHEDULER] Top node unchanged (%s) — no action", topNode)
+		log.Info().Msgf("[DESCHEDULER] Top node unchanged (%s) - no action", topNode)
 	}
 }

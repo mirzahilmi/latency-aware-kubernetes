@@ -73,7 +73,7 @@ func (e *Extender) HandleScore(w http.ResponseWriter, r *http.Request) {
 		oldCPU := nodeScore.CPUEwmaScore
 
 		// update distribusi count (1 pod dijadwalin ke node ini)
-		e.distribution.UpdateCount(bestNode, 1)
+		// e.distribution.UpdateCount(bestNode, 1)
 
 		// kasih penalti CPU sesuai tipe node
 		if strings.Contains(bestNode, "vm") {
