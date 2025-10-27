@@ -60,10 +60,13 @@ spec:
       serviceAccountName: prober
       containers:
         - name: prober-app
-          image: ghcr.io/mirzahilmi/prober:0.3.6
+          image: ghcr.io/mirzahilmi/prober:0.3.7
           imagePullPolicy: IfNotPresent
-          command: ["/prober"]
           env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
             - name: SERVICE_LEVEL_AGREEMENT
               value: "400"
             - name: INTERVAL_IN_SECONDS
@@ -72,12 +75,8 @@ spec:
               value: "3"
             - name: PING_COUNT
               value: "5"
-            - name: NODE_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
-            - name: CILIUM_SERVICE_NAME
-              value: hellopod-lb-svc
+            # - name: RUST_LOG
+            #   value: prober=debug
 
           readinessProbe:
             httpGet:
