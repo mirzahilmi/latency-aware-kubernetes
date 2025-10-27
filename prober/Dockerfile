@@ -12,10 +12,12 @@ RUN \
   --mount=type=bind,target=. \
   cargo build --release --frozen --target-dir /artifact
 
-FROM cgr.dev/chainguard/wolfi-base:latest
+FROM debian:bookworm-slim
 WORKDIR /bin
 
-RUN apk add nftables
-COPY --from=build /artifact/release/prober /prober
+RUN \
+  apt-get update -y && \
+  apt-get install -y iputils-ping nftables
+COPY --from=build /artifact/release/prober /bin/prober
 
 CMD ["/bin/prober"]
