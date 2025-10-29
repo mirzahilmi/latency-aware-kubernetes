@@ -1,0 +1,62 @@
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: node-exporter-app
+  template:
+    metadata:
+      labels:
+        app: node-exporter-app
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+
+      volumes:
+        - hostPath:
+            path: /sys
+          name: sys
+        - hostPath:
+            path: /
+          name: root
+
+      containers:
+        - name: node-exporter
+          image: quay.io/prometheus/node-exporter:v1.10.2
+          args:
+            - --path.sysfs=/host/sys
+            - --path.rootfs=/host/root
+            - --collector.disable-defaults
+            - --collector.cpu
+            - --collector.meminfo
+          ports:
+            - containerPort: 9100
+              hostPort: 9100
+              protocol: TCP
+
+          resources:
+            limits:
+              cpu: 250m
+              memory: 180Mi
+            requests:
+              cpu: 102m
+              memory: 180Mi
+
+          volumeMounts:
+            - mountPath: /host/sys
+              mountPropagation: HostToContainer
+              name: sys
+              readOnly: true
+            - mountPath: /host/root
+              mountPropagation: HostToContainer
+              name: root
+              readOnly: true

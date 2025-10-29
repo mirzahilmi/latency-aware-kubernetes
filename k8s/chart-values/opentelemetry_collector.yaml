@@ -62,10 +62,22 @@ ports:
 config:
   receivers:
     otlp: {}
+    prometheus:
+      config:
+        scrape_configs:
+          - job_name: "node_exporters"
+            scrape_interval: 1m
+            # FIXME: should be replaced with dynamic discovery
+            static_configs:
+              - targets:
+                  - k8s-slave-1-raspberrypi-4:9100
+                  - k8s-slave-2-vm:9100
+                  - k8s-slave-3-raspberrypi-4:9100
+                  - k8s-slave-4-raspberrypi-4:9100
 
   exporters:
     debug:
-      verbosity: detailed
+      verbosity: basic
     influxdb:
       endpoint: ${env:OTELCOL_URL}
       token: ${env:OTELCOL_TOKEN}
@@ -75,5 +87,5 @@ config:
   service:
     pipelines:
       metrics:
-        receivers: [otlp]
+        receivers: [otlp, prometheus]
         exporters: [influxdb, debug]
