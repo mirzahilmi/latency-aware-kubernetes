@@ -7,13 +7,13 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/extender"
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/influx"
-	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/logging"
+	// "github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/logging"
 	"github.com/rs/zerolog/log"
 )
 
 func main() {
 	// === Logging ===
-	logging.Configure()
+	// logging.Configure()
 	log.Info().Msg("[EXTENDER] Starting Latency-Aware Scheduler Extender")
 
 	// === InfluxDB Service ===

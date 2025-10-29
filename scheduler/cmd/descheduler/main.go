@@ -9,7 +9,7 @@ import (
 
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/descheduler"
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/influx"
-	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/logging"
+	// "github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/logging"
 	"github.com/rs/zerolog/log"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -17,7 +17,7 @@ import (
 
 func main() {
 	// === Logging ===
-	logging.Configure()
+	// logging.Configure()
 	log.Info().Msg("[DESCHEDULER] Starting Descheduler")
 
 	// === InfluxDB Service ===
