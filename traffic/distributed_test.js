@@ -9,10 +9,10 @@ if (targets.length != distributions.length)
 
 var scenarios = {};
 for (let i = 0; i < targets.length; i++) {
-  scenarios[`node-${i}`] = {
+  scenarios[`node-${i + 1}`] = {
       executor: "constant-vus",
       vus: Number(distributions[i]),
-      duration: "30m",
+      duration: __ENV.DURATION_EACH,
       env: { TARGET: targets[i] },
   };
 }
@@ -24,5 +24,4 @@ export const options = {
 export default function() {
   const res = http.get(`http://${__ENV.TARGET}:30000`);
   check(res, { "status is 200": (res) => res.status === 200 });
-  sleep(0.5);
 }
