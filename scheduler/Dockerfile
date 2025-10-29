@@ -6,7 +6,6 @@ RUN \
     --mount=type=bind,target=. \
     go mod download
 
-# build dua binary
 RUN \
     --mount=type=cache,target=/go/pkg/mod \
     --mount=type=bind,target=. \
@@ -20,5 +19,5 @@ COPY --from=builder --chown=nonroot:nonroot /artifact/scheduler /app/scheduler
 COPY --from=builder --chown=nonroot:nonroot /artifact/descheduler /app/descheduler
 USER nonroot
 
-# default ke scheduler (bisa override di manifest)
+# default scheduler
 ENTRYPOINT ["/app/scheduler"]
