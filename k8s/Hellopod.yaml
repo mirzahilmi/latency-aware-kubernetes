@@ -14,19 +14,19 @@ spec:
       labels:
         app: hellopod
     spec:
-      schedulerName: latency-aware-scheduler
+      # schedulerName: latency-aware-scheduler
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
-          - weight: 100
-            podAffinityTerm:
-              labelSelector:
-                matchExpressions:
-                - key: app
-                  operator: In
-                  values:
-                  - hellopod
-              topologyKey: "kubernetes.io/hostname"
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - hellopod
+                topologyKey: "kubernetes.io/hostname"
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
@@ -36,12 +36,12 @@ spec:
                   - key: node-role.kubernetes.io/worker
                     operator: Exists
       topologySpreadConstraints:
-      - maxSkew: 1
-        topologyKey: kubernetes.io/hostname
-        whenUnsatisfiable: ScheduleAnyway
-        labelSelector:
-          matchLabels:
-            app: hellopod
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: hellopod
       containers:
         - name: hellopod-app
           image: ghcr.io/mirzahilmi/hellopod:0.2.0
@@ -131,21 +131,3 @@ spec:
       port: 8000
       targetPort: 8080
       nodePort: 30000
-# ---
-# apiVersion: cilium.io/v2
-# kind: CiliumNetworkPolicy
-# metadata:
-#   name: l7-visibility
-#   namespace: riset
-# spec:
-#   endpointSelector:
-#     matchLabels:
-#       "k8s:app": hellopod
-#   ingress:
-#     - toPorts:
-#         - ports:
-#             - port: "8080"
-#               protocol: TCP
-#           rules:
-#             http: [{}]
-
