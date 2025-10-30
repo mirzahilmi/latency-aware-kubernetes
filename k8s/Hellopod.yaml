@@ -14,7 +14,7 @@ spec:
       labels:
         app: hellopod
     spec:
-      # schedulerName: latency-aware-scheduler
+      schedulerName: latency-aware-scheduler
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:

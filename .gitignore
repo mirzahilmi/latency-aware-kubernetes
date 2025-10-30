@@ -167,6 +167,4 @@ vite.config.ts.timestamp-*
 
 kubeconfig.yaml
 aggregator/
-aggregator/
-Secret.yaml
-Secret.yaml
+*Secret.yaml

@@ -26,7 +26,7 @@ data:
         enableHTTPS: false
         nodeCacheCapable: false
         managedResources: []  
-        ignorable: false  
+        ignorable: false
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -40,7 +40,7 @@ data:
   PROBER_PORT: "3000"
   PORT_EXTENDER: "3001"
   POD_NAMESPACE: "riset"
-  DUMMY_MODE: "false"  
+  DUMMY_MODE: "false"
   TZ: "Asia/Jakarta"
 ---
 apiVersion: v1
@@ -130,7 +130,8 @@ rules:
     resources: ["persistentvolumeclaims", "persistentvolumes"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["storage.k8s.io"]
-    resources: ["storageclasses", "csinodes", "csidrivers", "csistoragecapacities"]
+    resources:
+      ["storageclasses", "csinodes", "csidrivers", "csistoragecapacities"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
@@ -184,72 +185,72 @@ spec:
       nodeSelector:
         kubernetes.io/hostname: k8s-master-1-vm
       containers:
-      # Container 1: Kube-scheduler
-      - name: kube-scheduler
-        image: registry.k8s.io/kube-scheduler:v1.29.0
-        command:
-          - kube-scheduler
-          - --config=/etc/scheduler/config.yaml
-          - --v=4  # Verbosity level (0-10, 4 = info+debug)
-        volumeMounts:
-        - name: scheduler-config
-          mountPath: /etc/scheduler
-        resources:
-          requests:
-            cpu: 100m
-            memory: 128Mi
-          limits:
-            cpu: 500m
-            memory: 512Mi
-      # Container 2: Latency Extender
-      - name: latency-extender
-        image: adindaysafitri/scheduler:0.0.26
-        imagePullPolicy: Always  
-        ports:
-          - name: http
-            containerPort: 3001
-            protocol: TCP
-        envFrom:
-          - secretRef:
-              name: influx-secrets
-          - configMapRef:
-              name: latency-scheduler-env
-        volumeMounts:
-          - name: scheduler-configfile
-            mountPath: /tmp/config.json
-            subPath: config.json
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 3001
-          initialDelaySeconds: 10
-          periodSeconds: 30
-          timeoutSeconds: 5
-          failureThreshold: 3
-        # Readiness probe: cek apakah container siap menerima traffic
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 3001
-          initialDelaySeconds: 5
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3    
-        resources:
-          requests:
-            cpu: 100m
-            memory: 128Mi
-          limits:
-            cpu: 500m
-            memory: 512Mi
-      
+        # Container 1: Kube-scheduler
+        - name: kube-scheduler
+          image: registry.k8s.io/kube-scheduler:v1.29.0
+          command:
+            - kube-scheduler
+            - --config=/etc/scheduler/config.yaml
+            - --v=4 # Verbosity level (0-10, 4 = info+debug)
+          volumeMounts:
+            - name: scheduler-config
+              mountPath: /etc/scheduler
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+        # Container 2: Latency Extender
+        - name: latency-extender
+          image: adindaysafitri/scheduler:0.0.26
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 3001
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: influx-secrets
+            - configMapRef:
+                name: latency-scheduler-env
+          volumeMounts:
+            - name: scheduler-configfile
+              mountPath: /tmp/config.json
+              subPath: config.json
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Readiness probe: cek apakah container siap menerima traffic
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
       volumes:
-      - name: scheduler-config
-        configMap:
-          name: latency-scheduler-config
-      - name: scheduler-configfile
-        configMap:
-          name: latency-scheduler-configfile
+        - name: scheduler-config
+          configMap:
+            name: latency-scheduler-config
+        - name: scheduler-configfile
+          configMap:
+            name: latency-scheduler-configfile
 ---
 apiVersion: v1
 kind: Service
@@ -268,3 +269,4 @@ spec:
       port: 3001
       targetPort: 3001
   sessionAffinity: None
+
