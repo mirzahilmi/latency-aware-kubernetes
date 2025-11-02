@@ -15,13 +15,14 @@ func (s *Service) QueryTopNode(bucket string) (string, float64, error) {
 
 	query := fmt.Sprintf(`
 from(bucket: "%s")
-  |> range(start: -10m)
+  |> range(start: -2m)
   |> filter(fn: (r) => r["_measurement"] == "http_packet")
   |> filter(fn: (r) => r["_field"] == "counter")
-  |> aggregateWindow(every: 1m, fn: last)
+  |> aggregateWindow(every: 1m, fn: last, createEmpty: false)
   |> derivative(unit: 1m, nonNegative: true)
   |> group(columns: ["node_name"])
-  |> sum()
+  |> sum(column: "_value")
+  |> group()
   |> sort(columns: ["_value"], desc: true)
   |> limit(n: 1)
 `, bucket)
@@ -30,6 +31,7 @@ from(bucket: "%s")
 	if err != nil {
 		return "", 0, fmt.Errorf("[INFLUX] query error: %v", err)
 	}
+
 	defer result.Close()
 
 	var topNode string
@@ -37,19 +39,25 @@ from(bucket: "%s")
 
 	for result.Next() {
 		record := result.Record()
+
 		node, _ := record.ValueByKey("node_name").(string)
 		if node == "" {
 			node, _ = record.ValueByKey("node").(string)
 		}
+		if node == "" {
+			node, _ = record.ValueByKey("host").(string)
+		}
+
 		value, _ := record.Value().(float64)
 
 		if node == "" || math.IsNaN(value) || value == 0 {
 			log.Debug().Msgf("[INFLUX] Skip node %s: invalid or zero value (%.2f)", node, value)
 			continue
 		}
-		
+
 		topNode = node
 		reqRate = value
+
 		log.Debug().Msgf("[INFLUX] Record: node=%s value=%.2f", node, value)
 		break
 	}
@@ -59,8 +67,8 @@ from(bucket: "%s")
 	}
 
 	if topNode == "" {
-		log.Warn().Msg("[INFLUX] QueryTopNode returned no records (no active traffic)")
-		return "", 0, nil
+		log.Warn().Msg("[INFLUX] No data found in recent range, returning dummy node")
+		return "none", 0, nil
 	}
 
 	log.Info().Msgf("[INFLUX] Top node = %s (%.2f req/min)", topNode, reqRate)

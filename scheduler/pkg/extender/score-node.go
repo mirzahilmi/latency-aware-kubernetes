@@ -2,41 +2,48 @@ package extender
 
 import (
 	"math"
+	"strings"
 
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/prober"
 )
 
-func ScoreNode(nodeName string, proberData map[string]prober.ScoreData, trafficMap map[string]float64) float64 {
+func ScoreNode(nodeName string, proberData map[string]prober.ScoreData, trafficNormMap map[string]float64, cfg ScoringConfig) int64 {
 	scoreData, ok := proberData[nodeName]
 	if !ok {
 		return 0
 	}
 
-	// // normalisasi traffic
-	// maxTraffic := 0.0
-	// for _, v := range trafficMap {
-	// 	if v > maxTraffic {
-	// 		maxTraffic = v
-	// 	}
-	// }
-	// if maxTraffic == 0 {
-	// 	maxTraffic = 1
-	// }
-	// rawTraffic := trafficMap[nodeName]
-	// trafficNormalized := rawTraffic / maxTraffic
-	// if trafficNormalized < 0 {
-	// 	trafficNormalized = 0
-	// }
-
 	lat := scoreData.LatencyEwmaScore
 	cpu := scoreData.CPUEwmaScore
+	traffic := trafficNormMap[nodeName]
 
-	weighted := (WeightLatency*lat + WeightCPU*cpu) * SCALE_FACTOR
-	final := int(math.Round(weighted))
-	if final < 0 {
-		final = 0
-	} else if final > int(SCALE_FACTOR) {
-		final = int(SCALE_FACTOR)
+	score:= (cfg.WeightLatency*lat + cfg.WeightCPU*cpu + cfg.WeightTraffic*traffic) * cfg.ScaleFactor
+
+	return clampScore(score)
+}
+
+func clampScore(s float64) int64 {
+	if s < 0 {
+		s = 0
 	}
-	return float64(final)
+	if s > 100 {
+		s = 100
+	}
+	return int64(math.Round(s))
+}
+
+func ApplyCPUPenalty(nodeName string, cpuScore float64) float64 {
+    penalty := 0.0
+	// applying hardcoded cpu penalty here
+    if strings.Contains(nodeName, "vm") {
+        penalty = 0.10 
+    } else {
+        penalty = 0.05 
+    }
+
+    penalized := cpuScore - penalty
+    if penalized < 0 {
+        penalized = 0
+    }
+    return penalized
 }
