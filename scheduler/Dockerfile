@@ -11,7 +11,6 @@ RUN \
     --mount=type=bind,target=. \
     CGO_ENABLED=0 go build -ldflags "-s -w" -o /artifact/scheduler ./cmd/scheduler/ && \
     CGO_ENABLED=0 go build -ldflags "-s -w" -o /artifact/descheduler ./cmd/descheduler/
-
 FROM cgr.dev/chainguard/wolfi-base:latest
 WORKDIR /app
 
