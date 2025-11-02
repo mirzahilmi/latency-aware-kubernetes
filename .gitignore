@@ -170,3 +170,5 @@ aggregator/
 aggregator/
 Secret.yaml
 Secret.yaml
+Secrets.yaml
+Influx-secret.yaml
