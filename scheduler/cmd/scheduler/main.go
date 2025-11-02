@@ -5,15 +5,13 @@ import (
 	"os"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/extender"
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/influx"
-	// "github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/logging"
 	"github.com/rs/zerolog/log"
 )
 
 func main() {
-	// === Logging ===
-	// logging.Configure()
 	log.Info().Msg("[EXTENDER] Starting Latency-Aware Scheduler Extender")
 
 	// === InfluxDB Service ===
@@ -22,28 +20,28 @@ func main() {
 		log.Fatal().Msg("[EXTENDER] Failed to initialize InfluxDB client")
 	}
 
-	bucket := os.Getenv("INFLUX_BUCKET")
-	if bucket == "" {
-		log.Fatal().Msg("[EXTENDER] Missing INFLUX_BUCKET environment variable")
-	}
-
-	// === Initialize Extender ===
-	ext := extender.NewExtender(influxSvc, bucket)
+	// === Load config & create Extender ===
+	cfg := extender.LoadScoringConfig()
+	ext := extender.NewExtender(influxSvc, influxSvc.GetBucket())
+	ext.Config = cfg
 
 	// === HTTP Router ===
-	router := chi.NewMux()
-	ext.RegisterRoutes(router) // register /filter, /score, /health
+	router := chi.NewRouter()
+	router.Use(middleware.Logger)
+	router.Use(middleware.Recoverer)
+	ext.RegisterRoutes(router) // includes /filter, /score, /bind, /health
 
+	// === Start HTTP server ===
 	port := os.Getenv("PORT_EXTENDER")
-	if port == "" {
-		port = "3001"
-	}
-
 	addr := ":" + port
-	log.Info().Msgf("[EXTENDER] Scheduler extender running on %s", addr)
 
-	// === Start HTTP Server ===
-	if err := http.ListenAndServe(addr, router); err != nil {
-		log.Fatal().Err(err).Msg("[EXTENDER] Failed to start extender HTTP server")
-	}
+	go func() {
+		log.Info().Msgf("[EXTENDER] HTTP server listening on %s", addr)
+		if err := http.ListenAndServe(addr, router); err != nil {
+			log.Fatal().Err(err).Msg("[EXTENDER] Failed to start HTTP server")
+		}
+	}()
+
+	// === Passive forever (warmup goroutine already running) ===
+	select {}
 }

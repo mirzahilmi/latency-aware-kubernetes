@@ -5,64 +5,48 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/descheduler"
+	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/extender"
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/influx"
-	// "github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/logging"
 	"github.com/rs/zerolog/log"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
 
 func main() {
-	// === Logging ===
-	// logging.Configure()
-	log.Info().Msg("[DESCHEDULER] Starting Descheduler")
+	log.Info().Msg("[DESCHEDULER] Starting Adaptive Descheduler Controller")
 
-	// === InfluxDB Service ===
+	// === Context & graceful shutdown ===
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// === In-cluster Kubernetes config ===
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		log.Fatal().Err(err).Msg("[DESCHEDULER] Failed to load in-cluster config")
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		log.Fatal().Err(err).Msg("[DESCHEDULER] Failed to create clientset")
+	}
+
+	// === InfluxDB client ===
 	influxSvc := influx.NewService()
 	if influxSvc == nil {
 		log.Fatal().Msg("[DESCHEDULER] Failed to initialize InfluxDB client")
 	}
 
-	bucket := os.Getenv("INFLUX_BUCKET")
-	if bucket == "" {
-		log.Fatal().Msg("[DESCHEDULER] Missing INFLUX_BUCKET environment variable")
-	}
+	// === Base initialization ===
+	namespace := os.Getenv("POD_NAMESPACE")
+	cfg := extender.LoadScoringConfig()
 
-	// === Kubernetes Client ===
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		log.Fatal().Err(err).Msg("[DESCHEDULER] Cannot load in-cluster kubeconfig")
-	}
+	// === Initialize descheduler instance ===
+	ds := descheduler.NewAdaptiveDescheduler(clientset, influxSvc, influxSvc.GetBucket(), namespace, cfg)
 
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		log.Fatal().Err(err).Msg("[DESCHEDULER] Cannot create Kubernetes clientset")
-	}
-
-	// === Descheduler Initialization ===
-	ds := descheduler.NewDescheduler(clientset, influxSvc, bucket)
-
-	// === Context & Graceful Shutdown ===
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
-	interval := 1 * time.Minute
-	log.Info().Msgf("[DESCHEDULER] Loop started (interval: %v)", interval)
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			log.Info().Msg("[DESCHEDULER] Stopped gracefully")
-			return
-		case <-ticker.C:
-			log.Info().Msg("[DESCHEDULER] Evaluating cluster state...")
-			ds.Evaluate(ctx)
-		}
+	// === Watch CRD: LatencyDeschedulerPolicy ===
+	log.Info().Msg("[DESCHEDULER] Watching LatencyDeschedulerPolicy CRD...")
+	if err := ds.WatchLatencyPolicy(ctx); err != nil {
+		log.Fatal().Err(err).Msg("[DESCHEDULER] CRD watch failed — cannot proceed")
 	}
 }

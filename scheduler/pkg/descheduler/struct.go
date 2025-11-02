@@ -1,29 +1,62 @@
 package descheduler
 
 import (
-	"sync"
-	"time"
+	"context"
 
+	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/extender"
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/influx"
+	"github.com/rs/zerolog/log"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
-type Descheduler struct {
+type AdaptiveDescheduler struct {
 	clientset     *kubernetes.Clientset
+	metricsClient *metricsclient.Clientset
 	influxService *influx.Service
 	bucket        string
-	config        *rest.Config
-	mu            sync.Mutex
+	namespace     string
 
-	prevTopNode  string
-	lastEviction time.Time
+	config        extender.ScoringConfig
+	policy 		  LatencyDeschedulerPolicySpec
+
+	prevTopNode   string
+	isRunning bool
+	cancelFunc context.CancelFunc
 }
 
-func NewDescheduler(clientset *kubernetes.Clientset, service *influx.Service, bucket string) *Descheduler {
-	return &Descheduler{
+func NewAdaptiveDescheduler(
+	clientset *kubernetes.Clientset,
+	influxSvc *influx.Service,
+	bucket string,
+	namespace string,
+	cfg extender.ScoringConfig,
+) *AdaptiveDescheduler {
+
+	restCfg, err := rest.InClusterConfig()
+	if err != nil {
+		log.Fatal().Err(err).Msg("[DESCHEDULER] Failed to load in-cluster config for metrics client")
+	}
+	metricsClient, err := metricsclient.NewForConfig(restCfg)
+	if err != nil {
+		log.Fatal().Err(err).Msg("[DESCHEDULER] Failed to initialize metrics client")
+	}
+
+	return &AdaptiveDescheduler{
 		clientset:     clientset,
-		influxService: service,
+		metricsClient: metricsClient,
+		influxService: influxSvc,
 		bucket:        bucket,
+		namespace:     namespace,
+		config:        cfg, 
+		policy: 	   LatencyDeschedulerPolicySpec{},
+		prevTopNode:   "",
 	}
 }
+
+type LatencyDeschedulerPolicySpec struct {
+    IntervalSeconds  int     `json:"intervalSeconds"`
+    IdleCPUThreshold float64 `json:"idleCPUThreshold"`
+}
+

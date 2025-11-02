@@ -31,7 +31,6 @@ func NewService() *Service {
 		Str("bucket", bucket).
 		Msg("Connecting to InfluxDB...")
 
-	// Buat client
 	client := influxdb2.NewClient(url, token)
 
 	// Test connection
