@@ -1,0 +1,9 @@
+apiVersion: riset.ub/v1
+kind: LatencyDeschedulerPolicy
+metadata:
+  name: adaptive-policy
+  namespace: riset
+spec:
+  enabled: true
+  intervalSeconds: 120  #let descheduler evaluate cluster every 120s
+  idleCPUThreshold: 0.3 #choosing idle pod to evict

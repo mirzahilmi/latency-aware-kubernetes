@@ -1,0 +1,109 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: latency-aware-descheduler
+  namespace: riset
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: descheduler-role
+  namespace: riset
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "delete"]
+  - apiGroups: ["", "events.k8s.io"]
+    resources: ["events"]
+    verbs: ["create", "patch", "update"]
+  - apiGroups: ["riset.ub"]
+    resources: ["latencydeschedulerpolicies"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: descheduler-clusterrole
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods/eviction"]
+    verbs: ["get", "list", "watch", "delete", "create"]
+  - apiGroups: ["policy", "policy/v1", "policy/v1beta1"]
+    resources: ["pods/eviction"]
+    verbs: ["create"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: descheduler-rolebinding
+  namespace: riset
+subjects:
+  - kind: ServiceAccount
+    name: latency-aware-descheduler
+    namespace: riset
+roleRef:
+  kind: Role
+  name: descheduler-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: descheduler-clusterrolebinding
+subjects:
+  - kind: ServiceAccount
+    name: latency-aware-descheduler
+    namespace: riset
+roleRef:
+  kind: ClusterRole
+  name: descheduler-clusterrole
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: latency-aware-descheduler
+  namespace: riset
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: latency-aware-descheduler
+  template:
+    metadata:
+      labels:
+        app: latency-aware-descheduler
+    spec:
+      serviceAccountName: latency-aware-descheduler
+      automountServiceAccountToken: true
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: Exists
+      containers:
+        - name: latency-descheduler
+          image: adindaysafitri/scheduler:0.1.2
+          imagePullPolicy: Always
+          command: ["/app/descheduler"]
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          envFrom:
+            - secretRef:
+                name: extender-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
