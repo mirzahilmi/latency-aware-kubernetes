@@ -19,9 +19,11 @@ func NewExtender(influxService *influx.Service, bucket string) *Extender {
 		proberScores:  make(map[string]prober.ScoreData),
 		cachedTraffic: make(map[string]float64),
 		cachedTrafficNorm: make(map[string]float64),
-		IsColdStart: true,
+		lastPenalized:     make(map[string]struct {
+			CPU     float64
+			Applied time.Time
+   		}),
 	}
-	go e.Warmup()
 	return e
 }
 
@@ -32,91 +34,80 @@ func (e *Extender) RegisterRoutes(router *chi.Mux) {
 	router.Get("/health", e.HandleHealth)
 }
 
-// Warmup: only check connectivity (non-blocking), not waiting for traffic.
+// Warmup phase: extender will fetch prober data from configured top node in the beginning of scheduling phase
+// so make sure that your configured top node is the most powerful one (cause scheduler indirectly would recognize top node as the best node)
 func (e *Extender) Warmup() {
-	log.Info().Msg("[WARMUP] Cold start: verifying InfluxDB & Prober connectivity...")
+    log.Info().Msg("[WARMUP] Pre-fetching baseline prober metrics...")
 
-	for {
-		// Check Influx connectivity
-		if _, _, err := e.influxService.QueryTopNode(e.bucket); err != nil {
-			log.Warn().Err(err).Msg("[WARMUP] Waiting for InfluxDB connection...")
-			time.Sleep(3 * time.Second)
-			continue
-		}
+    topNode, rate, err := e.influxService.QueryTopNode(e.bucket)
+    if err != nil {
+        log.Warn().Err(err).Msg("[WARMUP] Failed to query top node from InfluxDB")
+    }
 
-		// Fetch from configured NODE or fallback topNode
-		nodeName := os.Getenv("TOPNODE_FB")
-		if nodeName == "" {
-			topNode, _, err := e.influxService.QueryTopNode(e.bucket)
-			if err == nil && topNode != "" {
-				nodeName = topNode
-			}
-		}
+    fallbackNode := os.Getenv("TOPNODE_FB")
+    if fallbackNode == "" {
+        log.Warn().Msg("[WARMUP] No fallback node configured (TOPNODE_FB)")
+    }
 
-		if nodeName == "" {
-			log.Warn().Msg("[WARMUP] No valid node to fetch prober data, retrying...")
-			time.Sleep(3 * time.Second)
-			continue
-		}
-
-		scores, err := prober.FetchScoresFromNode(nodeName)
-		if err != nil || len(scores) == 0 {
-			log.Warn().Err(err).Msgf("[COLD-START] Waiting for prober metrics from %s...", nodeName)
-			time.Sleep(3 * time.Second)
-			continue
-		}
-
-		// Cache minimal prober data
-		e.mu.Lock()
-		for _, s := range scores {
-			e.proberScores[s.Hostname] = s
-		}
-		e.IsColdStart = false
-		e.mu.Unlock()
-
-		log.Info().Msgf("[COLD-START] Warmup complete — metrics fetched from %s", nodeName)
-		break
+    var targetNode string
+    if topNode == "" {
+		targetNode = fallbackNode
+		log.Warn().Msgf("[WARMUP] No topNode found, using fallback %s", targetNode)
+	} else {
+		targetNode = topNode
+		log.Info().Msgf("[WARMUP] Using topNode %s (traffic=%.2f req/min)", targetNode, rate)
 	}
+
+    scores, err := prober.FetchScoresFromNode(targetNode)
+    if err != nil || len(scores) == 0 {
+        log.Warn().Err(err).Msgf("[WARMUP] Failed to fetch prober data from %s", targetNode)
+        return
+    }
+
+    e.mu.Lock()
+    for _, s := range scores {
+        e.proberScores[s.Hostname] = s
+    }
+    e.mu.Unlock()
+    log.Info().Msgf("[WARMUP] Completed, cached baseline metrics from %s (%d nodes)", targetNode, len(scores))
 }
 
 func (e *Extender) RefreshProberData() {
-	topNode, topVal, err := e.influxService.QueryTopNode(e.bucket)
-	if err != nil || topNode == "" {
-		log.Warn().Err(err).Msg("[EXTENDER] Failed to query top node from InfluxDB")
-	}
+    topNode, topVal, err := e.influxService.QueryTopNode(e.bucket)
+    if err != nil || topNode == "" {
+        log.Warn().Err(err).Msg("[EXTENDER] Failed to query top node from InfluxDB")
+        return
+    }
 
-	e.mu.Lock()
-	if e.IsColdStart && topNode != "" && topVal >= e.Config.WarmupThreshold {
-		e.IsColdStart = false
-		log.Info().Str("mode", "NORMAL").
-			Msgf("[COLD→NORMAL] Transition complete — req=%.2f from %s", topVal, topNode)
-
-	}
+    e.mu.Lock()
 	e.mu.Unlock()
 
-	fallbackNode := os.Getenv("TOPNODE_FB")
-	if topNode == "" || topVal < e.Config.WarmupThreshold {
-		log.Warn().Msgf("[EXTENDER] topNode=%s traffic=%.2f (<%.2f) → using fallback node %s", topNode, topVal, e.Config.WarmupThreshold, fallbackNode)
-		topNode = fallbackNode
-	}
+    log.Info().Msgf("[EXTENDER] Refreshed prober data from %s (traffic=%.2f)", topNode, topVal)
 
-	log.Info().Msgf("[EXTENDER] Refreshed top node for prober: %s", topNode)
+    scores, err := prober.FetchScoresFromNode(topNode)
+    if err != nil {
+        log.Warn().Err(err).Msgf("[EXTENDER] Failed to fetch prober data from %s", topNode)
+        return
+    }
 
-	scores, err := prober.FetchScoresFromNode(topNode)
-	if err != nil {
-		log.Warn().Err(err).Msgf("[EXTENDER] Failed to fetch prober data from %s", topNode)
-		return
-	}
+    e.mu.Lock()
+	defer e.mu.Unlock()
 
-	e.mu.Lock()
-	for _, s := range scores {
+    for _, s := range scores {
+		if p, ok := e.lastPenalized[s.Hostname]; ok {
+			if time.Since(p.Applied) < 15*time.Second {
+				s.CPUEwmaScore = p.CPU
+				log.Debug().Msgf("[EXTENDER] Keeping penalized CPU for %s (recent <15s)", s.Hostname)
+			} else {
+				delete(e.lastPenalized, s.Hostname)
+				log.Debug().Msgf("[EXTENDER] Removing expired penalty for %s", s.Hostname)
+			}
+		}
 		e.proberScores[s.Hostname] = s
 	}
-	e.mu.Unlock()
 
-	log.Info().Msgf("[EXTENDER] Updated prober data from %s (%d nodes)", topNode, len(scores))
+    log.Info().Msgf("[EXTENDER] Updated prober data from %s (%d nodes)", topNode, len(scores))
 }
-
 
 // RefreshTrafficData updates cached traffic and normalized traffic maps.
 func (e *Extender) RefreshTrafficData() {
@@ -140,7 +131,6 @@ func (e *Extender) RefreshTrafficData() {
 	log.Info().Msgf("[EXTENDER] Updated traffic map (%d entries) + normalized traffic", len(trafficMap))
 }
 
-// HandleHealth is a simple liveness endpoint
 func (e *Extender) HandleHealth(w http.ResponseWriter, _ *http.Request) {
 	e.mu.RLock()
 	hasProberData := len(e.proberScores) > 0

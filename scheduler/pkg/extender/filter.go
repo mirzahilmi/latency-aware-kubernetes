@@ -21,17 +21,18 @@ func (e *Extender) HandleFilter(w http.ResponseWriter, r *http.Request) {
 		Int("[FILTER] nodeCount", len(req.Nodes.Items)).
 		Msg("[FILTER] Filter request received")
 
-	go e.RefreshProberData()
-	
+
+	e.RefreshProberData()
+
+	e.mu.RLock()
+	proberData := e.proberScores
+	e.mu.RUnlock()
+
 	// filter result
 	result := ExtenderFilterResult{
 		Nodes:       &NodeList{Items: make([]Node, 0)},
 		FailedNodes: make(map[string]string),
 	}
-
-	e.mu.RLock()
-	proberData := e.proberScores
-	e.mu.RUnlock()
 
 	if len(proberData) == 0 {
 		log.Warn().Msg("[FILTER] No prober data available - passing all nodes")

@@ -17,7 +17,6 @@ func (d *AdaptiveDescheduler) getMostIdlePod(ctx context.Context, nodeName strin
 	if err != nil {
 		return nil, err
 	}
-
 	if len(pods.Items) == 0 {
 		log.Debug().Msgf("[DESCHEDULER] No pods found on %s", nodeName)
 		return nil, nil
@@ -37,7 +36,6 @@ func (d *AdaptiveDescheduler) getMostIdlePod(ctx context.Context, nodeName strin
 		if isSystemPod(pod) {
 			continue
 		}
-
 		var totalCPU float64
 		for _, m := range podMetrics.Items {
 			if m.Name == pod.Name {
@@ -47,15 +45,15 @@ func (d *AdaptiveDescheduler) getMostIdlePod(ctx context.Context, nodeName strin
 				}
 			}
 		}
-
 		if totalCPU < minCPU && totalCPU < d.policy.IdleCPUThreshold {
 			minCPU = totalCPU
 			target = &pod
 		}
 	}
+
 	// fallback: if all pods have 0 usage, evict one non-system pod anyway
 	if target == nil && minCPU == math.MaxFloat64 {
-		log.Warn().Msgf("[DESCHEDULER] all pods on %s have 0 CPU usage, evicting first non-system pod", nodeName)
+		log.Warn().Msgf("[DESCHEDULER] Found some pods on %s that have 0 CPU usage, evicting first non-system pod", nodeName)
 		for _, pod := range pods.Items {
 			if !isSystemPod(pod) {
 				target = &pod
@@ -65,9 +63,11 @@ func (d *AdaptiveDescheduler) getMostIdlePod(ctx context.Context, nodeName strin
 	}
 
 	if target != nil {
-		log.Debug().Msgf("[DESCHEDULER] Idle pod candidate: %s/%s (CPU %.2fm)", target.Namespace, target.Name, minCPU)
+		log.Info().Msgf("[DESCHEDULER] Selected idle pod candidate: %s/%s (CPU=%.2fm, threshold=%.2fm)",
+			target.Namespace, target.Name, minCPU, d.policy.IdleCPUThreshold)
 	} else {
-		log.Warn().Msgf("[DESCHEDULER] No idle pod found under %.2fm threshold", d.policy.IdleCPUThreshold)
+		log.Info().Msgf("[DESCHEDULER] No idle pod available to evict on %s (threshold=%.2fm)",
+			nodeName, d.policy.IdleCPUThreshold)
 	}
 
 	return target, nil

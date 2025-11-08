@@ -25,6 +25,9 @@ func main() {
 	ext := extender.NewExtender(influxSvc, influxSvc.GetBucket())
 	ext.Config = cfg
 
+	ext.Warmup()
+	log.Info().Msg("[EXTENDER] Warm-up routine started in background")
+
 	// === HTTP Router ===
 	router := chi.NewRouter()
 	router.Use(middleware.Logger)
@@ -35,13 +38,8 @@ func main() {
 	port := os.Getenv("PORT_EXTENDER")
 	addr := ":" + port
 
-	go func() {
-		log.Info().Msgf("[EXTENDER] HTTP server listening on %s", addr)
-		if err := http.ListenAndServe(addr, router); err != nil {
-			log.Fatal().Err(err).Msg("[EXTENDER] Failed to start HTTP server")
-		}
-	}()
-
-	// === Passive forever (warmup goroutine already running) ===
-	select {}
+	log.Info().Msgf("[EXTENDER] HTTP server listening on %s", addr)
+	if err := http.ListenAndServe(addr, router); err != nil {
+		log.Fatal().Err(err).Msg("[EXTENDER] Failed to start HTTP server")
+	}
 }

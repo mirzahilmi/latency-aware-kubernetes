@@ -39,6 +39,10 @@ func (e *Extender) HandleBind(w http.ResponseWriter, r *http.Request) {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
+    if e.clientset == nil {
+        cfg, _ := rest.InClusterConfig()
+        e.clientset, _ = kubernetes.NewForConfig(cfg)
+    }
 
     binding := &corev1.Binding{
         ObjectMeta: metav1.ObjectMeta{
