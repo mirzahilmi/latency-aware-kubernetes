@@ -2,41 +2,44 @@ package extender
 
 import (
 	"math"
+	"strings"
 
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/prober"
 )
 
-func ScoreNode(nodeName string, proberData map[string]prober.ScoreData, trafficMap map[string]float64) float64 {
-	scoreData, ok := proberData[nodeName]
+func ScoreNode(nodeName string, proberData map[string]prober.ScoreData, trafficNormMap map[string]float64, cfg ScoringConfig) int64 {
+	ps, ok := proberData[nodeName]
 	if !ok {
 		return 0
 	}
 
-	// // normalisasi traffic
-	// maxTraffic := 0.0
-	// for _, v := range trafficMap {
-	// 	if v > maxTraffic {
-	// 		maxTraffic = v
-	// 	}
-	// }
-	// if maxTraffic == 0 {
-	// 	maxTraffic = 1
-	// }
-	// rawTraffic := trafficMap[nodeName]
-	// trafficNormalized := rawTraffic / maxTraffic
-	// if trafficNormalized < 0 {
-	// 	trafficNormalized = 0
-	// }
+	lat := ps.LatencyEwmaScore
+	cpu := ps.CPUEwmaScore
+	traffic := trafficNormMap[nodeName]
 
-	lat := scoreData.LatencyEwmaScore
-	cpu := scoreData.CPUEwmaScore
+	score:= (cfg.WeightLatency*lat + cfg.WeightCPU*cpu + cfg.WeightTraffic*traffic) * cfg.ScaleFactor
+	return clampScore(score)
+}
 
-	weighted := (WeightLatency*lat + WeightCPU*cpu) * SCALE_FACTOR
-	final := int(math.Round(weighted))
-	if final < 0 {
-		final = 0
-	} else if final > int(SCALE_FACTOR) {
-		final = int(SCALE_FACTOR)
+func ApplyCPUPenalty(nodeName string, cpuScore float64, cfg ScoringConfig) float64 {
+	penalty := cfg.rpiPenalty
+    if strings.Contains(nodeName, "vm") {
+        penalty = cfg.vmPenalty
+    } 
+
+    penalized := cpuScore - penalty
+    if penalized < 0 {
+        penalized = 0
+    }
+    return penalized
+}
+
+func clampScore(s float64) int64 {
+	if s < 0 {
+		s = 0
 	}
-	return float64(final)
+	if s > 100 {
+		s = 100
+	}
+	return int64(math.Round(s))
 }

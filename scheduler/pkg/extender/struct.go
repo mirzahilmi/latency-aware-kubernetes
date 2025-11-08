@@ -1,10 +1,15 @@
 package extender
 
 import (
+	"log"
+	"os"
+	"strconv"
 	"sync"
+	"time"
 
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/influx"
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/prober"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -15,12 +20,53 @@ type Extender struct {
 	mu            sync.RWMutex
 	proberScores  map[string]prober.ScoreData
 	cachedTraffic map[string]float64 
+	cachedTrafficNorm map[string]float64
 	clientset     *kubernetes.Clientset
 	namespace     string
+	Config 		  ScoringConfig
+
+	lastPenalized map[string]struct {
+        CPU     float64
+        Applied time.Time
+    }
 }
 
+type ScoringConfig struct {
+    WeightLatency      float64
+    WeightCPU          float64
+	WeightTraffic      float64
+    ScaleFactor        float64
+	LatencyThreshold   float64
+	cpuThreshold	   float64
+	WarmupThreshold    float64
+	vmPenalty		   float64
+	rpiPenalty		   float64
+}
 
-// ================== STRUCT LAIN ==================
+func LoadScoringConfig() ScoringConfig {
+	parse := func(key string) float64 {
+		val := os.Getenv(key)
+		f, err := strconv.ParseFloat(val, 64)
+		if err != nil {
+			log.Fatalf("invalid value for %s=%s (must be numeric)", key, val)
+		}
+		return f
+	}
+
+	return ScoringConfig{
+		WeightLatency:      parse("WEIGHT_LATENCY"),
+		WeightCPU:          parse("WEIGHT_CPU"),
+		WeightTraffic:      parse("WEIGHT_TRAFFIC"),
+		ScaleFactor:        parse("SCALE_FACTOR"),
+		LatencyThreshold:	parse("LATENCY_THRESHOLD"),
+		cpuThreshold:		parse("CPU_THRESHOLD"),
+		WarmupThreshold: 	parse("WARMUP_THRESHOLD"),
+		vmPenalty:			parse("VM_PENALTY"),
+		rpiPenalty: 		parse("RPI_PENALTY"),
+	}
+}
+
+// ================== KUBE STRUCT ==================
 
 type SchedulerRequest struct {
 	Pod   PodInfo  `json:"pod"`
@@ -39,12 +85,14 @@ type NodeList struct {
 }
 
 type Node struct {
-	Metadata NodeMetadata `json:"metadata"`
+	Metadata struct {
+		Name string `json:"name"`
+	} `json:"metadata"`
 }
 
-type NodeMetadata struct {
-	Name string `json:"name"`
-}
+// type NodeMetadata struct {
+// 	Name string `json:"name"`
+// }
 
 type ExtenderFilterResult struct {
 	Nodes       *NodeList         `json:"nodes,omitempty"`
@@ -54,17 +102,20 @@ type ExtenderFilterResult struct {
 
 type HostPriority struct {
 	Host  string `json:"host"`
-	Score int    `json:"score"`
+	Score int64    `json:"score"`
 }
-
 type HostPriorityList []HostPriority
 
-var (
-	// LatencyThreshold = 0.25
-	// CPUThreshold     = 0.8
-	WeightLatency = 0.4
-	WeightCPU     = 0.3
-	WeightTraffic = 0.3
-)
+type ExtenderBindingArgs struct {
+    PodName      string    `json:"podName"`
+    PodNamespace string    `json:"podNamespace"`
+    PodUID       types.UID `json:"podUID"`
+    Node         string    `json:"node"`
+}
+type ExtenderBindingResult struct {
+    Error string `json:"error,omitempty"`
+}
 
-const SCALE_FACTOR = 1000000
+
+
+

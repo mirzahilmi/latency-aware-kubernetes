@@ -2,108 +2,102 @@ package extender
 
 import (
 	"encoding/json"
-	"math"
 	"net/http"
-	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 )
 
-// HandleScore menghitung skor node dan menerapkan penalti CPU
-// hanya setelah node terbaik (winner) ditentukan.
 func (e *Extender) HandleScore(w http.ResponseWriter, r *http.Request) {
 	var req SchedulerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	log.Info().Str("pod", req.Pod.Metadata.Name).
+		Int("nodeCount", len(req.Nodes.Items)).
+		Msg("[SCORE] Request received")
 
-	log.Info().
-		Str("[SCORE] pod", req.Pod.Metadata.Name).
-		Int("[SCORE] nodeCount", len(req.Nodes.Items)).
-		Msg("[SCORE] Score request received")
+	// refresh prober & traffic so when new pod scheduled, it doesn’t reuse stale cache data
+	e.RefreshProberData()
+	e.RefreshTrafficData()
 
 	e.mu.RLock()
 	proberData := e.proberScores
-	trafficMap := e.cachedTraffic
+	trafficNorm := e.cachedTrafficNorm
 	e.mu.RUnlock()
 
-	if len(proberData) == 0 {
-		log.Warn().Msg("[SCORE] no prober data available — returning neutral scores")
-	}
-
+	//scoring phase start here
 	priorities := make(HostPriorityList, 0, len(req.Nodes.Items))
-
 	var bestNode string
 	var bestScore float64
 
-	// 🧮 Phase 1: hitung skor untuk semua node
+	log.Info().Msg("[SCORE]Scoring mode active, using latency, CPU, and traffic")
+
 	for _, node := range req.Nodes.Items {
 		nodeName := node.Metadata.Name
-
-		// base score: kombinasi latency + CPU
-		baseScore := ScoreNode(nodeName, proberData, trafficMap)
-		if baseScore == 0 {
-			log.Warn().Msgf("[SCORE] base score is zero for %s", nodeName)
+		ps, ok := proberData[nodeName]
+		if !ok {
+			log.Debug().Msgf("[SCORE] Skipping node %s: no prober data", nodeName)
+			continue
 		}
 
-		normalized := int(math.Round(baseScore / 10000))
-		if normalized > 100 {
-			normalized = 100
-		}
-		if normalized < 0 {
-			normalized = 0
+		scoreNormal := ScoreNode(nodeName, proberData, trafficNorm, e.Config)
+		if scoreNormal <= 0 {
+			continue
 		}
 
-		priorities = append(priorities, HostPriority{
-			Host:  nodeName,
-			Score: normalized,
-		})
-
-		if baseScore > bestScore {
-			bestScore = baseScore
-			bestNode = nodeName
+		priorities = append(priorities, HostPriority{Host: nodeName, Score: scoreNormal})
+		if float64(scoreNormal) > bestScore {
+			bestNode, bestScore = nodeName, float64(scoreNormal)
 		}
-	}
+		log.Debug().Msgf("[SCORE] Node %s score=%d (CPU=%.3f Lat=%.3f Traffic=%.3f)", 
+			nodeName, scoreNormal, ps.CPUEwmaScore, ps.LatencyEwmaScore, trafficNorm[nodeName])
+		}
 
-	// 🚀 Phase 2: setelah node terbaik ditentukan → beri penalti CPU
-	if bestNode != "" {
-		e.mu.Lock()
-		nodeScore := e.proberScores[bestNode]
-		oldCPU := nodeScore.CPUEwmaScore
-
-		// update distribusi count (1 pod dijadwalin ke node ini)
-		// e.distribution.UpdateCount(bestNode, 1)
-
-		// kasih penalti CPU sesuai tipe node
-		if strings.Contains(bestNode, "vm") {
-			nodeScore.CPUEwmaScore -= 0.025 // 2 core (VM)
+		if bestNode == "" {
+			log.Warn().Msg("[SCORE] No valid node found during normal scoring")
 		} else {
-			nodeScore.CPUEwmaScore -= 0.0125 // 4 core (Raspberry)
-		}
-		if nodeScore.CPUEwmaScore < 0 {
-			nodeScore.CPUEwmaScore = 0
+			log.Info().Msgf("[SCORE] Selected best node: %s (score=%.3f)", bestNode, bestScore)
 		}
 
-		e.proberScores[bestNode] = nodeScore
-		e.mu.Unlock()
+		if bestNode != "" {
+			e.ApplyPenalty(bestNode, float64(bestScore))
+		} else {
+			log.Warn().Msg("[SCORE] No valid node selected — skipping penalty")
+		}
 
-		log.Info().
-			Str("bestNode", bestNode).
-			Float64("bestScore", bestScore).
-			Float64("cpuBefore", oldCPU).
-			Float64("cpuAfter", nodeScore.CPUEwmaScore).
-			Msg("[SCORE] Winner node penalized and CPU cache updated")
-	} else {
-		log.Warn().Msg("[SCORE] No best node selected — no penalty applied")
-	}
-
-	log.Info().
-		Int("[SCORE SUM] scoredNodes", len(priorities)).
-		Msg("[SCORE PHASE COMPLETED]")
+		log.Info().Msgf("[SCORE] Completed — best=%s (score=%.2f)", bestNode, bestScore)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(priorities); err != nil {
-		log.Error().Err(err).Msg("[SCORE] Failed to encode score response")
+		log.Error().Err(err).Msg("[SCORE] Failed to encode response")
 	}
 }
+
+
+func (e *Extender) ApplyPenalty(bestNode string, bestScore float64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	ps, ok := e.proberScores[bestNode]
+	if !ok {
+		log.Warn().Msgf("[SCORE] Cannot apply penalty — node %s not found in cache", bestNode)
+		return
+	}
+
+	oldCPU := ps.CPUEwmaScore
+	ps.CPUEwmaScore = ApplyCPUPenalty(bestNode, oldCPU, e.Config)
+	e.proberScores[bestNode] = ps
+
+	e.lastPenalized[bestNode] = struct {
+		CPU     float64
+		Applied time.Time
+	}{
+		CPU:     ps.CPUEwmaScore,
+		Applied: time.Now(),
+	}
+
+	log.Debug().Msgf("[SCORE] Penalized %s (cpu: %.2f→%.2f)", bestNode, oldCPU, ps.CPUEwmaScore)
+}
+
