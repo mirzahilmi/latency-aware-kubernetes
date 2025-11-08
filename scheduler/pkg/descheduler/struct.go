@@ -57,6 +57,6 @@ func NewAdaptiveDescheduler(
 
 type LatencyDeschedulerPolicySpec struct {
     IntervalSeconds  int     `json:"intervalSeconds"`
-    IdleCPUThreshold float64 `json:"idleCPUThreshold"`
+    IdleCPUThreshold int 	 `json:"idleCPUThreshold"`
 }
 
