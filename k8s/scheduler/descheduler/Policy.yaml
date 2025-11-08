@@ -6,4 +6,4 @@ metadata:
 spec:
   enabled: true
   intervalSeconds: 120  #let descheduler evaluate cluster every 120s
-  idleCPUThreshold: 0.3 #choosing idle pod to evict
+  idleCPUThreshold: 75  #choosing idle pod to evict
