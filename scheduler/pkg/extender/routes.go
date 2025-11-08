@@ -79,9 +79,6 @@ func (e *Extender) RefreshProberData() {
         return
     }
 
-    e.mu.Lock()
-	e.mu.Unlock()
-
     log.Info().Msgf("[EXTENDER] Refreshed prober data from %s (traffic=%.2f)", topNode, topVal)
 
     scores, err := prober.FetchScoresFromNode(topNode)
