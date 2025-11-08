@@ -15,14 +15,14 @@ func (s *Service) QueryTrafficByNode(bucket string) (map[string]float64, error) 
 	}
 
 	query := fmt.Sprintf(`
-from(bucket: "%s")
-  |> range(start: -2m)
-  |> filter(fn: (r) => r["_measurement"] == "http_packet")
-  |> filter(fn: (r) => r["_field"] == "counter")
-  |> aggregateWindow(every: 1m, fn: last, createEmpty: false)
-  |> derivative(unit: 1m, nonNegative: true)
-  |> group(columns: ["node_name"])
-`, bucket)
+	from(bucket: "%s")
+	|> range(start: -2m)
+	|> filter(fn: (r) => r["_measurement"] == "http_packet")
+	|> filter(fn: (r) => r["_field"] == "counter")
+	|> aggregateWindow(every: 1m, fn: last, createEmpty: false)
+	|> derivative(unit: 1m, nonNegative: true)
+	|> group(columns: ["node_name"])
+	`, bucket)
 
 	result, err := s.queryAPI.Query(context.Background(), query)
 	if err != nil {
@@ -63,7 +63,6 @@ from(bucket: "%s")
 			log.Debug().Msgf("[INFLUX] Skipping node %s: negative value (%.2f)", node, value)
 			continue
 		}
-
 		trafficMap[node] = value
 		log.Debug().Msgf("[INFLUX] Node %s traffic: %.2f req/min", node, value)
 	}
@@ -74,21 +73,15 @@ from(bucket: "%s")
 	}
 
 	if len(trafficMap) == 0 {
-		log.Warn().Msg("[INFLUX] QueryTrafficByNode returned no records (empty traffic map)")
-		log.Warn().Msg("[INFLUX] Possible causes: no data in InfluxDB, wrong measurement/field name, or no traffic")
+		log.Warn().Msg("[INFLUX] No traffic data found, possible idle cluster or empty measurement")
 	} else {
-		var totalTraffic float64
-		for node, traffic := range trafficMap {
-			totalTraffic += traffic
-			log.Info().Msgf("[INFLUX]   • %s: %.2f req/min", node, traffic)
+		log.Info().Msg("[INFLUX][TRAFFIC] Node traffic summary:")
+		for node, val := range trafficMap {
+			log.Info().Msgf("%s → %.2f req/min", node, val)
 		}
 	}
 
 	return trafficMap, nil
-}
-
-func (s *Service) QueryAllNodesTraffic(bucket string) (map[string]float64, error) {
-	return s.QueryTrafficByNode(bucket)
 }
 
 func (s *Service) NormalizedTraffic(bucket string) (map[string]float64, error) {
@@ -119,9 +112,9 @@ func (s *Service) NormalizedTraffic(bucket string) (map[string]float64, error) {
 		normMap[node] = n
 	}
 
-	log.Info().Msg("[INFLUX] Normalized traffic map (0–1 scale):")
+	log.Info().Msg("[INFLUX][TRAFFIC] Normalized traffic (0–1 scale):")
 	for node, n := range normMap {
-		log.Info().Msgf("   • %s = %.3f", node, n)
+		log.Info().Msgf("%s = %.3f", node, n)
 	}
 
 	return normMap, nil

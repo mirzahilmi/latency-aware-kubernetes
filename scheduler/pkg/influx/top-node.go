@@ -57,9 +57,6 @@ from(bucket: "%s")
 
 		topNode = node
 		reqRate = value
-
-		log.Debug().Msgf("[INFLUX] Record: node=%s value=%.2f", node, value)
-		break
 	}
 
 	if err := result.Err(); err != nil {
@@ -71,6 +68,6 @@ from(bucket: "%s")
 		return "none", 0, nil
 	}
 
-	log.Info().Msgf("[INFLUX] Top node = %s (%.2f req/min)", topNode, reqRate)
+	log.Info().Msgf("[INFLUX][TOP-NODE] Top node = %s (%.2f req/min)", topNode, reqRate)
 	return topNode, reqRate, nil
 }
