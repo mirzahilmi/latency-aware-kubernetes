@@ -11,12 +11,10 @@ import (
 )
 
 func (d *AdaptiveDescheduler) Run(ctx context.Context) {
-	intervalSec := d.policy.IntervalSeconds
-
-	log.Info().Msgf("[DESCHEDULER] Starting adaptive descheduler loop (interval=%ds)", intervalSec)
-
-	ticker := time.NewTicker(time.Duration(intervalSec) * time.Second)
+	ticker := time.NewTicker(time.Duration(d.policy.IntervalSeconds) * time.Second)
 	defer ticker.Stop()
+
+	log.Info().Msgf("[DESCHEDULER] Starting adaptive descheduler loop (interval=%ds)", d.policy.IntervalSeconds)
 
 	for {
 		select {
@@ -27,46 +25,46 @@ func (d *AdaptiveDescheduler) Run(ctx context.Context) {
 			d.evaluateCycle(ctx)
 		}
 	}
-
 }
 
 func (d *AdaptiveDescheduler) evaluateCycle(ctx context.Context) {
-	log.Debug().Msg("[DESCHEDULER] Evaluating cluster state...")
-
-	//get topNode
 	topNode, rate, err := d.influxService.QueryTopNode(d.bucket)
 	if err != nil {
 		log.Error().Err(err).Msg("[DESCHEDULER] Failed to query topNode")
 		return
 	}
+
 	if topNode == "" {
-		log.Warn().Msg("[DESCHEDULER] No topNode detected — skipping")
+		log.Warn().Msg("[DESCHEDULER] No topNode detected — skipping evaluation")
 		return
 	}
+
+	cfg := d.config
 	log.Info().Msgf("[DESCHEDULER] Current topNode: %s (%.2f req/min)", topNode, rate)
 
-	// check if new top node = previous top node
-	if d.prevTopNode == "" {
+	//condition check, descheduler will evict pod if:
+	//1. new top node has traffic > threshold
+	if rate < cfg.WarmupThreshold {
+        log.Warn().Msgf("[DESCHEDULER] Traffic %.2f < %.2f, skipping evaluation (cluster cold-start or idle)", rate, cfg.WarmupThreshold)
+        return
+    }
+	//2. new top node != previous top node
+	switch {
+	case d.prevTopNode == "":
 		d.prevTopNode = topNode
-		log.Info().Msg("[DESCHEDULER] Initial topNode recorded")
+		log.Info().Msgf("[DESCHEDULER] Initial topNode recorded: %s (%.2f req/min)", topNode, rate)
+		return
+	case d.prevTopNode == topNode:
+		log.Debug().Msgf("[DESCHEDULER] Traffic stable, topNode unchanged (%s)", topNode)
 		return
 	}
-	if d.prevTopNode == topNode {
-		log.Debug().Msg("[DESCHEDULER] Traffic stable — no eviction this cycle")
-		return
-	}
-	log.Info().Msgf("[DESCHEDULER] Traffic shift detected (%s → %s)", d.prevTopNode, topNode)
 
-	// get prober & traffic data
+    log.Info().Msgf("[DESCHEDULER] Traffic shift detected (%s → %s, rate=%.2f)", d.prevTopNode, topNode, rate)
+
 	proberData, err := prober.FetchScoresFromNode(topNode)
-	if err != nil {
-		log.Warn().Err(err).Msg("[DESCHEDULER] Failed to fetch prober data — skipping")
+	if err != nil || len(proberData) == 0 {
+		log.Warn().Err(err).Msgf("[DESCHEDULER] Failed to fetch prober data from %s", topNode)
 		return
-	}
-
-	proberMap := make(map[string]prober.ScoreData)
-	for _, s := range proberData {
-		proberMap[s.Hostname] = s
 	}
 
 	trafficNorm, err := d.influxService.NormalizedTraffic(d.bucket)
@@ -75,33 +73,37 @@ func (d *AdaptiveDescheduler) evaluateCycle(ctx context.Context) {
 		trafficNorm = map[string]float64{}
 	}
 
-	cfg := extender.LoadScoringConfig()
-	nodeScores := d.ScoreAllNodes(proberData, trafficNorm, cfg)
+	// Compute node scores
+	nodeScores := make(map[string]float64)
+    for _, s := range proberData {
+        node := s.Hostname
+        nodeScores[node] = float64(extender.ScoreNode(node, map[string]prober.ScoreData{node: s}, trafficNorm, cfg))
+    }
 
 	// find the worst node
-	worstNode := ""
-	lowestScore := math.MaxFloat64
+	worstNode, lowestScore := "", math.MaxFloat64
 	for node, score := range nodeScores {
-		if float64(score) < lowestScore {
-			lowestScore = float64(score)
-			worstNode = node
+		if score < lowestScore {
+			worstNode, lowestScore = node, score
 		}
 	}
+
 	if worstNode == "" {
-		log.Warn().Msg("[DESCHEDULER] No valid worst node found — skipping eviction")
+		log.Warn().Msg("[DESCHEDULER] No target node selected, skipping eviction")
 		return
 	}
 
 	log.Warn().Msgf("[DESCHEDULER] Worst node identified: %s (score=%.2f)", worstNode, lowestScore)
 
 	// Evict idle pod in worst node
-	if err := d.evictIdlePod(ctx, worstNode); err != nil {
-		log.Warn().Err(err).Msg("[DESCHEDULER] Eviction failed")
-	} else {
-		log.Info().Msgf("[DESCHEDULER] Evicted idle pod from %s", worstNode)
-	}
+	log.Info().Msgf("[DESCHEDULER] Searching for idle pods on %s (threshold=%.2fm)",
+	worstNode, d.policy.IdleCPUThreshold)
 
+	if err := d.evictIdlePod(ctx, worstNode); err != nil {
+		log.Warn().Err(err).Msgf("[DESCHEDULER] Eviction process failed for %s", worstNode)
+	} else {
+		log.Info().Msgf("[DESCHEDULER] Evicted idle pod(s) from %s due to traffic shift", worstNode)
+	}
 	d.prevTopNode = topNode
 }
-
 

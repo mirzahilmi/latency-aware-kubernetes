@@ -3,6 +3,7 @@ package extender
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/rs/zerolog/log"
 )
@@ -13,91 +14,60 @@ func (e *Extender) HandleScore(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	log.Info().
-		Str("pod", req.Pod.Metadata.Name).
+	log.Info().Str("pod", req.Pod.Metadata.Name).
 		Int("nodeCount", len(req.Nodes.Items)).
 		Msg("[SCORE] Request received")
 
-	// refresh prober & traffic
+	// refresh prober & traffic so when new pod scheduled, it doesn’t reuse stale cache data
 	e.RefreshProberData()
 	e.RefreshTrafficData()
 
 	e.mu.RLock()
 	proberData := e.proberScores
-	trafficNormMap := e.cachedTrafficNorm
-	isColdStart := e.IsColdStart
+	trafficNorm := e.cachedTrafficNorm
 	e.mu.RUnlock()
 
+	//scoring phase start here
 	priorities := make(HostPriorityList, 0, len(req.Nodes.Items))
 	var bestNode string
-	var bestScore int64
+	var bestScore float64
 
-	if isColdStart {
-		log.Warn().Msg("[COLD] Cold-start mode active, using latency & CPU only (traffic ignored)")
+	log.Info().Msg("[SCORE]Scoring mode active, using latency, CPU, and traffic")
 
-		for _, node := range req.Nodes.Items {
-			nodeName := node.Metadata.Name
-			ps, ok := proberData[nodeName]
-			if !ok {
-				continue
-			}
+	for _, node := range req.Nodes.Items {
+		nodeName := node.Metadata.Name
+		ps, ok := proberData[nodeName]
+		if !ok {
+			log.Debug().Msgf("[SCORE] Skipping node %s: no prober data", nodeName)
+			continue
+		}
 
-			penalizedCPU := ApplyCPUPenalty(nodeName, ps.CPUEwmaScore)
-			rawScore := 0.6*ps.LatencyEwmaScore + 0.4*penalizedCPU // hardcoded score for cold-start
-			scoreInt := clampScore(rawScore * e.Config.ScaleFactor)
+		scoreNormal := ScoreNode(nodeName, proberData, trafficNorm, e.Config)
+		if scoreNormal <= 0 {
+			continue
+		}
 
-			priorities = append(priorities, HostPriority{Host: nodeName, Score: scoreInt})
-			if scoreInt > bestScore {
-				bestScore = scoreInt
-				bestNode = nodeName
-			}
-
-			log.Info().Msgf("   • %s → lat=%.3f cpu=%.3f score=%d",
-				nodeName, ps.LatencyEwmaScore, ps.CPUEwmaScore, scoreInt)
+		priorities = append(priorities, HostPriority{Host: nodeName, Score: scoreNormal})
+		if float64(scoreNormal) > bestScore {
+			bestNode, bestScore = nodeName, float64(scoreNormal)
+		}
+		log.Debug().Msgf("[SCORE] Node %s score=%d (CPU=%.3f Lat=%.3f Traffic=%.3f)", 
+			nodeName, scoreNormal, ps.CPUEwmaScore, ps.LatencyEwmaScore, trafficNorm[nodeName])
 		}
 
 		if bestNode == "" {
-			log.Warn().Msg("[COLD] No valid node found during cold-start scoring")
+			log.Warn().Msg("[SCORE] No valid node found during normal scoring")
 		} else {
-			log.Info().Msgf("[COLD] Selected best node: %s (score=%d)", bestNode, bestScore)
+			log.Info().Msgf("[SCORE] Selected best node: %s (score=%.3f)", bestNode, bestScore)
 		}
 
-	} else {
-		log.Info().Msg("[NORMAL] Scoring mode active — using latency, CPU, and traffic")
-
-		for _, node := range req.Nodes.Items {
-			nodeName := node.Metadata.Name
-			score := ScoreNode(nodeName, proberData, trafficNormMap, e.Config)
-			if score <= 0 {
-				continue
-			}
-
-			priorities = append(priorities, HostPriority{Host: nodeName, Score: score})
-			if score > bestScore {
-				bestScore = score
-				bestNode = nodeName
-			}
-
-			log.Info().Msgf("   • %s → score=%d", nodeName, score)
-		}
-
-		if bestNode == "" {
-			log.Warn().Msg("[NORMAL] No valid node found during normal scoring")
+		if bestNode != "" {
+			e.ApplyPenalty(bestNode, float64(bestScore))
 		} else {
-			log.Info().Msgf("[NORMAL] Selected best node: %s (score=%d)", bestNode, bestScore)
+			log.Warn().Msg("[SCORE] No valid node selected — skipping penalty")
 		}
-	}
 
-	if bestNode != "" {
-		e.ApplyPenalty(bestNode, float64(bestScore), isColdStart)
-	} else {
-		log.Warn().Msg("[SCORE] No valid node selected — skipping penalty")
-	}
-
-	modeStr := map[bool]string{true: "COLD", false: "NORMAL"}[isColdStart]
-	log.Info().Msgf("[SCORE] Completed (mode=%s) — best=%s (score=%d)",
-		modeStr, bestNode, bestScore)
+		log.Info().Msgf("[SCORE] Completed — best=%s (score=%.2f)", bestNode, bestScore)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(priorities); err != nil {
@@ -105,22 +75,29 @@ func (e *Extender) HandleScore(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ApplyPenalty — reduce CPU score of the winning node slightly to prevent immediate reuse
-func (e *Extender) ApplyPenalty(bestNode string, bestScore float64, isCold bool) {
+
+func (e *Extender) ApplyPenalty(bestNode string, bestScore float64) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	ns := e.proberScores[bestNode]
-	oldCPU := ns.CPUEwmaScore
-	ns.CPUEwmaScore = ApplyCPUPenalty(bestNode, ns.CPUEwmaScore)
-	e.proberScores[bestNode] = ns
+	ps, ok := e.proberScores[bestNode]
+	if !ok {
+		log.Warn().Msgf("[SCORE] Cannot apply penalty — node %s not found in cache", bestNode)
+		return
+	}
 
-	mode := map[bool]string{true: "COLD", false: "NORMAL"}[isCold]
-	log.Info().
-		Str("mode", mode).
-		Str("bestNode", bestNode).
-		Int("bestScore", int(bestScore)).
-		Float64("cpuBefore", oldCPU).
-		Float64("cpuAfter", ns.CPUEwmaScore).
-		Msg("[SCORE] Winner selected and CPU penalized")
+	oldCPU := ps.CPUEwmaScore
+	ps.CPUEwmaScore = ApplyCPUPenalty(bestNode, oldCPU, e.Config)
+	e.proberScores[bestNode] = ps
+
+	e.lastPenalized[bestNode] = struct {
+		CPU     float64
+		Applied time.Time
+	}{
+		CPU:     ps.CPUEwmaScore,
+		Applied: time.Now(),
+	}
+
+	log.Debug().Msgf("[SCORE] Penalized %s (cpu: %.2f→%.2f)", bestNode, oldCPU, ps.CPUEwmaScore)
 }
+

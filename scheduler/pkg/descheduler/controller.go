@@ -58,7 +58,7 @@ func (d *AdaptiveDescheduler) WatchLatencyPolicy(ctx context.Context) error {
 	log.Info().Msg("[DESCHEDULER] Starting shared informer for LatencyDeschedulerPolicy...")
 	go informer.Run(ctx.Done())
 
-		// 🔹 tunggu sampai cache ready
+		//wait until cache ready
 	if !cache.WaitForCacheSync(ctx.Done(), informer.HasSynced) {
 		log.Error().Msg("[DESCHEDULER] CRD informer sync failed")
 		return nil
