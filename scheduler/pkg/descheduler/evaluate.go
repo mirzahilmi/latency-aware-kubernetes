@@ -96,7 +96,7 @@ func (d *AdaptiveDescheduler) evaluateCycle(ctx context.Context) {
 	log.Warn().Msgf("[DESCHEDULER] Worst node identified: %s (score=%.2f)", worstNode, lowestScore)
 
 	// Evict idle pod in worst node
-	log.Info().Msgf("[DESCHEDULER] Searching for idle pods on %s (threshold=%.2fm)",
+	log.Info().Msgf("[DESCHEDULER] Searching for idle pods on %s (threshold=%.dm)",
 	worstNode, d.policy.IdleCPUThreshold)
 
 	if err := d.evictIdlePod(ctx, worstNode); err != nil {

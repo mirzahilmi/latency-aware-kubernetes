@@ -85,12 +85,12 @@ func (d *AdaptiveDescheduler) handlePolicyEvent(ctx context.Context, obj interfa
 
 	enabled, _, _ := unstructured.NestedBool(spec, "enabled")
 	interval, _, _ := unstructured.NestedInt64(spec, "intervalSeconds")
-	idleCPU, _, _ := unstructured.NestedFloat64(spec, "idleCPUThreshold")
+	idleCPU, _, _ := unstructured.NestedInt64(spec, "idleCPUThreshold")
 
 	d.policy.IntervalSeconds = int(interval)
-	d.policy.IdleCPUThreshold = idleCPU
+	d.policy.IdleCPUThreshold = int(idleCPU)
 
-	log.Info().Msgf("[DESCHEDULER] Policy %s event — enabled=%v interval=%ds idleCPU=%.2f",
+	log.Info().Msgf("[DESCHEDULER] Policy %s event — enabled=%v interval=%ds idleCPU=%.d",
 		eventType, enabled, interval, idleCPU)
 
 	if enabled {
