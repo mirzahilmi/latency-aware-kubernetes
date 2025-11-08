@@ -89,7 +89,7 @@ spec:
                     operator: Exists
       containers:
         - name: latency-descheduler
-          image: adindaysafitri/scheduler:0.1.2
+          image: adindaysafitri/scheduler:0.1.9
           imagePullPolicy: Always
           command: ["/app/descheduler"]
           env:
