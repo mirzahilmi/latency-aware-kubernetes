@@ -26,7 +26,7 @@ spec:
       restartPolicy: Always
       containers:
         - name: latency-extender
-          image: adindaysafitri/scheduler:0.1.9
+          image: adindaysafitri/scheduler:0.2.1
           imagePullPolicy: IfNotPresent
           command: ["/app/scheduler"]
           ports:
