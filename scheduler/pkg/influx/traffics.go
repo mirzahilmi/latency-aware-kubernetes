@@ -77,7 +77,7 @@ func (s *Service) QueryTrafficByNode(bucket string) (map[string]float64, error) 
 	} else {
 		log.Info().Msg("[INFLUX][TRAFFIC] Node traffic summary:")
 		for node, val := range trafficMap {
-			log.Info().Msgf("%s → %.2f req/min", node, val)
+			log.Info().Msgf("%s = %.2f req/min", node, val)
 		}
 	}
 
