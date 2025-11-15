@@ -1,0 +1,18 @@
+[
+  {
+    "hostname": "ubuntu-22",
+    "ip": "192.168.1.1"
+  },
+  {
+    "hostname": "ubuntu-22",
+    "ip": "192.168.1.1"
+  },
+  {
+    "hostname": "ubuntu-22",
+    "ip": "192.168.1.1"
+  },
+  {
+    "hostname": "ubuntu-22",
+    "ip": "192.168.1.1"
+  }
+]
