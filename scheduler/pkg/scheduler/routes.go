@@ -21,6 +21,7 @@ func NewExtender(influxService *influx.Service, bucket string) *Extender {
 		cachedTrafficNorm: make(map[string]float64),
 		lastPenalized:     make(map[string]struct {
 			CPU     float64
+			Mem	    float64
 			Applied time.Time
    		}),
 	}

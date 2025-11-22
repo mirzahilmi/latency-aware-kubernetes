@@ -1,7 +1,7 @@
 package descheduler
 
 import (
-	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/extender"
+	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/scheduler"
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/prober"
 	"github.com/rs/zerolog/log"
 )

@@ -61,10 +61,10 @@ func (e *Extender) HandleFilter(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if score.CPUEwmaScore < e.Config.cpuThreshold {
-			result.FailedNodes[nodeName] = "cpu below threshold"
-			log.Debug().Msgf("[FILTER] %s REJECTED: cpu=%.3f < %.2f", 
-				nodeName, score.CPUEwmaScore, e.Config.cpuThreshold)
+		if score.CPUEwmaScore < e.Config.cpuThreshold && score.MemoryEwmaScore < e.Config.memThreshold {
+			result.FailedNodes[nodeName] = "cpu & memory below threshold"
+			log.Debug().Msgf("[FILTER] %s REJECTED (cpu=%.3f < %.2f, memory=%.3f < %.2f)", 
+				nodeName, score.CPUEwmaScore, e.Config.cpuThreshold, score.MemoryEwmaScore, e.Config.memThreshold)
 			continue
 		}
 

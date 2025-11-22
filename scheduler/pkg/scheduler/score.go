@@ -42,17 +42,17 @@ func (e *Extender) HandleScore(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		scoreNormal := ScoreNode(nodeName, proberData, trafficNorm, e.Config)
-		if scoreNormal <= 0 {
+		score := ScoreNode(nodeName, proberData, trafficNorm, e.Config)
+		if score <= 0 {
 			continue
 		}
 
-		priorities = append(priorities, HostPriority{Host: nodeName, Score: scoreNormal})
-		if float64(scoreNormal) > bestScore {
-			bestNode, bestScore = nodeName, float64(scoreNormal)
+		priorities = append(priorities, HostPriority{Host: nodeName, Score: score})
+		if float64(score) > bestScore {
+			bestNode, bestScore = nodeName, float64(score)
 		}
-		log.Debug().Msgf("[SCORE] Node %s score=%d (CPU=%.3f Lat=%.3f Traffic=%.3f)", 
-			nodeName, scoreNormal, ps.CPUEwmaScore, ps.LatencyEwmaScore, trafficNorm[nodeName])
+		log.Debug().Msgf("[SCORE] Node %s score=%d (CPU=%.3f Memory=%.3f Lat=%.3f Traffic=%.3f)", 
+			nodeName, score, ps.CPUEwmaScore, ps.MemoryEwmaScore, ps.LatencyEwmaScore, trafficNorm[nodeName])
 		}
 
 		if bestNode == "" {
@@ -64,10 +64,10 @@ func (e *Extender) HandleScore(w http.ResponseWriter, r *http.Request) {
 		if bestNode != "" {
 			e.ApplyPenalty(bestNode, float64(bestScore))
 		} else {
-			log.Warn().Msg("[SCORE] No valid node selected — skipping penalty")
+			log.Warn().Msg("[SCORE] No valid node selected, skipping penalty")
 		}
 
-		log.Info().Msgf("[SCORE] Completed — best=%s (score=%.2f)", bestNode, bestScore)
+		log.Info().Msgf("[SCORE] Completed, best node=%s (score=%.2f)", bestNode, bestScore)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(priorities); err != nil {
@@ -87,17 +87,23 @@ func (e *Extender) ApplyPenalty(bestNode string, bestScore float64) {
 	}
 
 	oldCPU := ps.CPUEwmaScore
+	oldMem := ps.MemoryEwmaScore
 	ps.CPUEwmaScore = ApplyCPUPenalty(bestNode, oldCPU, e.Config)
+	ps.CPUEwmaScore = ApplyMemPenalty(bestNode, oldMem, e.Config)
+
 	e.proberScores[bestNode] = ps
 
 	e.lastPenalized[bestNode] = struct {
 		CPU     float64
+		Mem 	float64
 		Applied time.Time
 	}{
 		CPU:     ps.CPUEwmaScore,
+		Mem:	 ps.MemoryEwmaScore,
 		Applied: time.Now(),
 	}
 
-	log.Debug().Msgf("[SCORE] Penalized %s (cpu: %.2f→%.2f)", bestNode, oldCPU, ps.CPUEwmaScore)
+	log.Debug().Msgf("[SCORE] Penalized %s (cpu: %.2f→%.2f, mem:%.2f→%.2f)", 
+		bestNode, oldCPU, ps.CPUEwmaScore, oldMem, ps.MemoryEwmaScore)
 }
 

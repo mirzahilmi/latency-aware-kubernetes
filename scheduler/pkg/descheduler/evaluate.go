@@ -5,7 +5,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/extender"
+	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/scheduler"
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/prober"
 	"github.com/rs/zerolog/log"
 )
@@ -43,11 +43,6 @@ func (d *AdaptiveDescheduler) evaluateCycle(ctx context.Context) {
 	log.Info().Msgf("[DESCHEDULER] Current topNode: %s (%.2f req/min)", topNode, rate)
 
 	//condition check, descheduler will evict pod if:
-	//1. new top node has traffic > threshold
-	if rate < cfg.WarmupThreshold {
-        log.Warn().Msgf("[DESCHEDULER] Traffic %.2f < %.2f, skipping evaluation (cluster cold-start or idle)", rate, cfg.WarmupThreshold)
-        return
-    }
 	//2. new top node != previous top node
 	switch {
 	case d.prevTopNode == "":

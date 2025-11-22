@@ -6,7 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/extender"
+	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/scheduler"
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/influx"
 	"github.com/rs/zerolog/log"
 )

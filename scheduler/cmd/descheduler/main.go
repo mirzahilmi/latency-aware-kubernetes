@@ -7,7 +7,7 @@ import (
 	"syscall"
 
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/descheduler"
-	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/extender"
+	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/scheduler"
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/influx"
 	"github.com/rs/zerolog/log"
 	"k8s.io/client-go/kubernetes"

@@ -15,19 +15,33 @@ func ScoreNode(nodeName string, proberData map[string]prober.ScoreData, trafficN
 
 	lat := ps.LatencyEwmaScore
 	cpu := ps.CPUEwmaScore
+	mem := ps.MemoryEwmaScore
 	traffic := trafficNormMap[nodeName]
 
-	score:= (cfg.WeightLatency*lat + cfg.WeightCPU*cpu + cfg.WeightTraffic*traffic) * cfg.ScaleFactor
+	score:= (cfg.WeightLatency*lat + cfg.WeightCPU*cpu + cfg.WeightMem*mem + cfg.WeightTraffic*traffic) * cfg.ScaleFactor
 	return clampScore(score)
 }
 
 func ApplyCPUPenalty(nodeName string, cpuScore float64, cfg ScoringConfig) float64 {
-	penalty := cfg.rpiPenalty
+	penalty := cfg.rpiPenaltyCPU
     if strings.Contains(nodeName, "vm") {
-        penalty = cfg.vmPenalty
+        penalty = cfg.vmPenaltyCPU
     } 
 
     penalized := cpuScore - penalty
+    if penalized < 0 {
+        penalized = 0
+    }
+    return penalized
+}
+
+func ApplyMemPenalty(nodeName string, memScore float64, cfg ScoringConfig) float64 {
+	penalty := cfg.rpiPenaltyMem
+    if strings.Contains(nodeName, "vm") {
+        penalty = cfg.vmPenaltyMem
+    } 
+
+    penalized := memScore - penalty
     if penalized < 0 {
         penalized = 0
     }

@@ -27,6 +27,7 @@ type Extender struct {
 
 	lastPenalized map[string]struct {
         CPU     float64
+		Mem     float64
         Applied time.Time
     }
 }
@@ -34,13 +35,19 @@ type Extender struct {
 type ScoringConfig struct {
     WeightLatency      float64
     WeightCPU          float64
+	WeightMem          float64
 	WeightTraffic      float64
     ScaleFactor        float64
+
 	LatencyThreshold   float64
 	cpuThreshold	   float64
-	WarmupThreshold    float64
-	vmPenalty		   float64
-	rpiPenalty		   float64
+	memThreshold       float64
+
+	vmPenaltyCPU		float64
+	rpiPenaltyCPU		float64
+
+	vmPenaltyMem		float64
+	rpiPenaltyMem		float64
 }
 
 func LoadScoringConfig() ScoringConfig {
@@ -57,12 +64,17 @@ func LoadScoringConfig() ScoringConfig {
 		WeightLatency:      parse("WEIGHT_LATENCY"),
 		WeightCPU:          parse("WEIGHT_CPU"),
 		WeightTraffic:      parse("WEIGHT_TRAFFIC"),
+		WeightMem:     		parse("WEIGHT_MEMORY"),
 		ScaleFactor:        parse("SCALE_FACTOR"),
+
 		LatencyThreshold:	parse("LATENCY_THRESHOLD"),
 		cpuThreshold:		parse("CPU_THRESHOLD"),
-		WarmupThreshold: 	parse("WARMUP_THRESHOLD"),
-		vmPenalty:			parse("VM_PENALTY"),
-		rpiPenalty: 		parse("RPI_PENALTY"),
+		memThreshold:		parse("MEM_THRESHOLD"),
+
+		vmPenaltyCPU:		parse("VM_PENALTY_CPU"),
+		rpiPenaltyCPU: 		parse("RPI_PENALTY_CPU"),
+		vmPenaltyMem:		parse("VM_PENALTY_MEM"),
+		rpiPenaltyMem: 		parse("RPI_PENALTY_MEM"),
 	}
 }
 
@@ -89,10 +101,6 @@ type Node struct {
 		Name string `json:"name"`
 	} `json:"metadata"`
 }
-
-// type NodeMetadata struct {
-// 	Name string `json:"name"`
-// }
 
 type ExtenderFilterResult struct {
 	Nodes       *NodeList         `json:"nodes,omitempty"`

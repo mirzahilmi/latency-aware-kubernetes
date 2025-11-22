@@ -16,6 +16,7 @@ type ScoreData struct {
 	Hostname         string  `json:"hostname"`
 	CPUEwmaScore     float64 `json:"cpuEwmaScore"`
 	LatencyEwmaScore float64 `json:"latencyEwmaScore"`
+	MemoryEwmaScore  float64 `json:"memEwmaScore"`
 }
 
 func resolveNodeAddr(node string) string { //convert hostname to IP
