@@ -19,11 +19,10 @@ enum Control<E> {
 
 pub async fn watch_endpoints(tx: broadcast::Sender<Event>) -> anyhow::Result<()> {
     let client = Client::try_default().await?;
-    let endpoints_api: Api<Endpoints> = Api::all(client.clone());
-    // probably shouldn't be static
+    // namespace probably shouldn't be static
+    let endpoints_api: Api<Endpoints> = Api::namespaced(client.clone(), "riset");
     let service_api: Api<KubernetesService> = Api::namespaced(client, "riset");
 
-    // watch loop
     let result = runtime::watcher(endpoints_api, Config::default())
         .applied_objects()
         .default_backoff()
@@ -82,7 +81,12 @@ pub async fn watch_endpoints(tx: broadcast::Sender<Event>) -> anyhow::Result<()>
                     endpoints_by_nodename.insert(nodename.clone(), endpoints);
                 }
 
-                info!("actor: endpoints changes occured: {endpoints_by_nodename:?}");
+                info!("actor: captured service {servicename} endpoints changes: {endpoints_by_nodename:?}");
+                if endpoints_by_nodename.len() == 1 {
+                    info!("actor: skipping undistributed service {servicename} endpoints containing only 1 node");
+                    return Ok(());
+                }
+
                 let service = Service {
                     name: servicename,
                     ip: serviceip,
