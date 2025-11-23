@@ -1,8 +1,9 @@
 use std::{
     collections::{HashMap, HashSet},
-    env,
     net::IpAddr,
 };
+
+use crate::config::Config;
 
 use super::actor::{Event, EwmaDatapoint, WorkerNode};
 use ping::SocketType;
@@ -12,12 +13,7 @@ use tokio::{
 };
 use tracing::{debug, error, info};
 
-pub async fn probe_latency(tx: broadcast::Sender<Event>) -> anyhow::Result<()> {
-    // should be managed by global config
-    let sla = env::var("SERVICE_LEVEL_AGREEMENT")?;
-    let mut sla: f64 = sla.parse()?;
-    sla /= 1000.0; // to second
-
+pub async fn probe_latency(config: Config, tx: broadcast::Sender<Event>) -> anyhow::Result<()> {
     let mut ticker = interval(Duration::from_secs(15));
     let mut nodes = HashSet::<WorkerNode>::new();
     let mut datapoint_by_nodename = HashMap::<IpAddr, f64>::new();
@@ -43,7 +39,7 @@ pub async fn probe_latency(tx: broadcast::Sender<Event>) -> anyhow::Result<()> {
                     continue;
                 }
             };
-            let normalized = result.rtt.as_secs_f64() / sla;
+            let normalized = result.rtt.as_secs_f64() / config.service_level_agreement;
             let alpha = 0.7;
             let datapoint = match datapoint_by_nodename.get(&worker.ip) {
                 Some(datapoint) => alpha * normalized + (1.0 - alpha) * *datapoint,

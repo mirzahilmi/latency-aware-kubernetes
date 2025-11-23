@@ -1,0 +1,15 @@
+{
+    "serviceLevelAgreement": 400,
+    "namespace": "mirzaganteng",
+    "prometheus": {
+        "url": "http://example.com:9090"
+    },
+    "nftables": {
+        "table": "mirzaganteng",
+        "chainPrerouting": "prerouting",
+        "chainServices": "services",
+        "setAllowedNodeIps": "iyadahgitudah",
+        "mapServiceChainByNodeport": "gitudahnamanya",
+        "prefixServiceEndpoint": "yowes-ikilo"
+    }
+}

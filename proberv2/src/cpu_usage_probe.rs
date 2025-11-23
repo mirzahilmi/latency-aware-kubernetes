@@ -1,10 +1,12 @@
 use std::{
     collections::{HashMap, HashSet},
-    env,
     net::IpAddr,
 };
 
-use crate::actor::{Event, EwmaDatapoint, WorkerNode};
+use crate::{
+    actor::{Event, EwmaDatapoint, WorkerNode},
+    config::Config,
+};
 use prometheus_http_query::Client;
 use tokio::{
     sync::broadcast,
@@ -12,10 +14,7 @@ use tokio::{
 };
 use tracing::{debug, error, info, warn};
 
-pub async fn probe_cpu_usage(tx: broadcast::Sender<Event>) -> anyhow::Result<()> {
-    // should be managed by global config
-    let prometheus_url = env::var("PROMETHEUS_URL")?;
-
+pub async fn probe_cpu_usage(config: Config, tx: broadcast::Sender<Event>) -> anyhow::Result<()> {
     let mut ticker = interval(Duration::from_secs(15));
     let mut nodes = HashSet::<WorkerNode>::new();
     let mut datapoint_by_nodename = HashMap::<IpAddr, f64>::new();
@@ -31,7 +30,7 @@ pub async fn probe_cpu_usage(tx: broadcast::Sender<Event>) -> anyhow::Result<()>
 
         // should be better off query once then iterate on the result
         for worker in &nodes {
-            let client = match Client::try_from(prometheus_url.clone()) {
+            let client = match Client::try_from(config.prometheus.url.clone()) {
                 Ok(client) => client,
                 Err(e) => {
                     error!("actor: failed to create prometheus client: {e}");

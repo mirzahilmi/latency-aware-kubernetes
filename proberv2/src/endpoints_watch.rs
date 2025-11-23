@@ -10,18 +10,23 @@ use kube::{
 use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 
-use crate::actor::{Event, Service};
+use crate::{
+    actor::{Event, Service},
+    config::Config as AppConfig,
+};
 
 enum Control<E> {
     Watcher(E),
     Stop,
 }
 
-pub async fn watch_endpoints(tx: broadcast::Sender<Event>) -> anyhow::Result<()> {
+pub async fn watch_endpoints(
+    config: AppConfig,
+    tx: broadcast::Sender<Event>,
+) -> anyhow::Result<()> {
     let client = Client::try_default().await?;
-    // namespace probably shouldn't be static
-    let endpoints_api: Api<Endpoints> = Api::namespaced(client.clone(), "riset");
-    let service_api: Api<KubernetesService> = Api::namespaced(client, "riset");
+    let endpoints_api: Api<Endpoints> = Api::namespaced(client.clone(), &config.namespace);
+    let service_api: Api<KubernetesService> = Api::namespaced(client, &config.namespace);
 
     let result = runtime::watcher(endpoints_api, Config::default())
         .applied_objects()

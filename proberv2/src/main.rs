@@ -1,39 +1,45 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, env, path::Path};
 
-use proberv2::actor::Actor;
-use tokio::signal::unix::{self, SignalKind};
-use tracing::error;
+use proberv2::{actor::Actor, config::Config};
+use tokio::{
+    fs,
+    signal::unix::{self, SignalKind},
+};
+use tracing::info;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
+
+    info!("prober: program starting");
+
+    let config_path = env::var("CONFIG_PATH")?;
+    let config_path = Path::new(&config_path);
+    let config = fs::read_to_string(config_path).await?;
+    let mut config: Config = serde_json::from_str(&config)?;
+
+    let node_name = env::var("NODENAME")?;
+    config.node_name = node_name;
+    config.service_level_agreement /= 1000.0; // to second
 
     let (tx, rx) = tokio::sync::broadcast::channel(32);
     {
         let mut actor = Actor {
             datapoint_by_nodename: HashMap::new(),
+            config,
         };
+        actor.setup_nftables().await?;
 
         tokio::spawn(async move { actor.dispatch(tx).await });
 
-        let mut sigint = match unix::signal(SignalKind::interrupt()) {
-            Ok(sig) => sig,
-            Err(e) => {
-                error!("main: failed to listen for SIGINT: {e}");
-                return;
-            }
-        };
-        let mut sigterm = match unix::signal(SignalKind::terminate()) {
-            Ok(sig) => sig,
-            Err(e) => {
-                error!("main: failed to listen for SIGTERM: {e}");
-                return;
-            }
-        };
+        let mut sigint = unix::signal(SignalKind::interrupt())?;
+        let mut sigterm = unix::signal(SignalKind::terminate())?;
 
         tokio::select! {
-            _ = sigint.recv() => return,
-            _ = sigterm.recv() => return,
+            _ = sigint.recv() => {},
+            _ = sigterm.recv() => {},
         }
     }
+
+    Ok(())
 }
