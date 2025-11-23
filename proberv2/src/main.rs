@@ -1,25 +1,20 @@
+use std::collections::HashMap;
+
+use proberv2::actor::Actor;
 use tokio::signal::unix::{self, SignalKind};
 use tracing::error;
-
-use crate::actor::Actor;
-
-mod actor;
-mod cpu_usage_probe;
-mod latency_probe;
-mod node_watch;
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
 
+    let (tx, rx) = tokio::sync::broadcast::channel(32);
     {
-        let (tx, rx) = tokio::sync::broadcast::channel(32);
         let mut actor = Actor {
-            datapoint_by_nodename: std::collections::HashMap::new(),
-            tx,
-            rx,
+            datapoint_by_nodename: HashMap::new(),
         };
-        tokio::spawn(async move { actor.dispatch().await });
+
+        tokio::spawn(async move { actor.dispatch(tx).await });
 
         let mut sigint = match unix::signal(SignalKind::interrupt()) {
             Ok(sig) => sig,

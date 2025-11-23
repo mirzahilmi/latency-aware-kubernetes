@@ -1,10 +1,13 @@
 use std::{collections::HashMap, net::IpAddr};
-use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::sync::broadcast::Sender;
 use tracing::{info, warn};
 
+use crate::{
+    cpu_usage_probe::probe_cpu_usage, endpoints_watch::watch_endpoints,
+    latency_probe::probe_latency, node_watch::watch_nodes,
+};
+
 pub struct Actor {
-    pub tx: Sender<Event>,
-    pub rx: Receiver<Event>,
     pub datapoint_by_nodename: HashMap<WorkerNode, Option<ScorePair>>,
 }
 
@@ -41,12 +44,14 @@ pub struct Service {
 }
 
 impl Actor {
-    pub async fn dispatch(&mut self) {
-        tokio::spawn(Actor::watch_nodes(self.tx.clone()));
-        tokio::spawn(Actor::probe_latency(self.tx.clone(), self.tx.subscribe()));
-        tokio::spawn(Actor::probe_cpu_usage(self.tx.clone(), self.tx.subscribe()));
+    pub async fn dispatch(&mut self, tx: Sender<Event>) {
+        tokio::spawn(watch_nodes(tx.clone()));
+        tokio::spawn(probe_latency(tx.clone()));
+        tokio::spawn(probe_cpu_usage(tx.clone()));
+        tokio::spawn(watch_endpoints(tx.clone()));
 
-        while let Ok(event) = self.rx.recv().await {
+        let mut rx = tx.subscribe();
+        while let Ok(event) = rx.recv().await {
             match event {
                 Event::ServiceChanged(_) => {
                     // not implemented yet
