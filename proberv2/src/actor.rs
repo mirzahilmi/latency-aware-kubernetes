@@ -1,13 +1,16 @@
+use anyhow::anyhow;
+use k8s_openapi::api::core::v1::Node;
+use kube::{Api, Client, ResourceExt};
 use nftables::{
     batch::Batch,
-    expr::{Expression, Meta, MetaKey, NamedExpression, Payload, PayloadField},
+    expr::{Expression as NftExpression, Meta, MetaKey, NamedExpression, Payload, PayloadField},
     helper,
-    schema::{Chain, Map, NfListObject, Rule, Set, SetType, SetTypeValue, Table},
+    schema::{Chain, NfListObject, Rule, Set, SetType, SetTypeValue, Table},
     stmt::{JumpTarget, Match, Operator, Statement, VerdictMap},
     types::{NfChainPolicy, NfChainType, NfFamily, NfHook},
 };
 use serde_json::json;
-use std::{collections::HashMap, net::IpAddr, str::FromStr};
+use std::{collections::HashMap, net::IpAddr};
 use tokio::sync::broadcast::Sender;
 use tracing::{debug, info, warn};
 
@@ -98,6 +101,28 @@ impl Actor {
 
     pub async fn setup_nftables(&self) -> anyhow::Result<()> {
         info!("actor: configuring base nftables ruleset");
+        let client = Client::try_default().await?;
+        let api: Api<Node> = Api::all(client);
+        let node = api.get(&self.config.node_name).await?;
+        let Some(addrs) = node
+            .status
+            .as_ref()
+            .and_then(|status| status.addresses.as_ref())
+        else {
+            return Err(anyhow!(
+                "missing node {} addresses attribute",
+                node.name_any(),
+            ));
+        };
+        let Some(a) = addrs.iter().find(|x| x.type_ == "InternalIP") else {
+            return Err(anyhow!(
+                "missing node {} InternalIP address",
+                node.name_any(),
+            ));
+        };
+
+        let ip = a.address.parse::<IpAddr>()?;
+
         let mut batch = Batch::new();
 
         batch.add(NfListObject::Table(Table {
@@ -111,6 +136,7 @@ impl Actor {
         helper::apply_ruleset(&ruleset)?;
         let mut batch = Batch::new();
 
+        // used raw because the crate does not has map type of `verdict`
         helper::apply_ruleset_raw(
             json!({
               "nftables": [
@@ -137,6 +163,7 @@ impl Actor {
             std::iter::empty::<&str>(),
         )?;
 
+        let ip_sets = [NftExpression::String(ip.to_string().into())];
         batch.add(NfListObject::Set(
             Set {
                 family: NfFamily::IP,
@@ -144,6 +171,7 @@ impl Actor {
                 name: self.config.nftables.set_allowed_node_ips.clone().into(),
                 set_type: SetTypeValue::Single(SetType::Ipv4Addr),
                 comment: Some("List IPv4 yang nerima traffic dari NodePort".into()),
+                elem: Some(ip_sets.as_ref().into()),
                 ..Default::default()
             }
             .into(),
@@ -184,35 +212,36 @@ impl Actor {
             table: self.config.nftables.table.clone().into(),
             chain: self.config.nftables.chain_prerouting.clone().into(),
             expr: jump_to_services.as_ref().into(),
+            handle: Some(0),
             ..Default::default()
         }));
 
         let vmap_to_service_lookup = [
             Statement::Match(Match {
-                left: Expression::Named(NamedExpression::Payload(Payload::PayloadField(
+                left: NftExpression::Named(NamedExpression::Payload(Payload::PayloadField(
                     PayloadField {
                         protocol: "ip".into(),
                         field: "daddr".into(),
                     },
                 ))),
                 op: Operator::EQ,
-                right: Expression::String(
+                right: NftExpression::String(
                     format!("@{}", self.config.nftables.set_allowed_node_ips.clone()).into(),
                 ),
             }),
             Statement::VerdictMap(VerdictMap {
-                key: Expression::Named(NamedExpression::Concat(vec![
-                    Expression::Named(NamedExpression::Meta(Meta {
+                key: NftExpression::Named(NamedExpression::Concat(vec![
+                    NftExpression::Named(NamedExpression::Meta(Meta {
                         key: MetaKey::L4proto,
                     })),
-                    Expression::Named(NamedExpression::Payload(Payload::PayloadField(
+                    NftExpression::Named(NamedExpression::Payload(Payload::PayloadField(
                         PayloadField {
                             protocol: "th".into(),
                             field: "dport".into(),
                         },
                     ))),
                 ])),
-                data: Expression::String(
+                data: NftExpression::String(
                     format!(
                         "@{}",
                         self.config.nftables.map_service_chain_by_nodeport.clone()
@@ -227,6 +256,7 @@ impl Actor {
             chain: self.config.nftables.chain_services.clone().into(),
             expr: vmap_to_service_lookup.as_ref().into(),
             comment: Some("Cek IPv4 paket di list IPv4 NodePort, kalo ada langsung ke verdict map ke service yang sesuai".into()),
+            handle: Some(0),
             ..Default::default()
         }));
 

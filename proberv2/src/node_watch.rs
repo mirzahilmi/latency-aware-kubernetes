@@ -26,8 +26,11 @@ pub async fn watch_nodes(tx: broadcast::Sender<Event>) -> anyhow::Result<()> {
     // initial discovery
     let nodes = api.list(&matcher).await?;
     for node in nodes {
-        let Some(status) = &node.status else { continue };
-        let Some(addrs) = &status.addresses else {
+        let Some(addrs) = node
+            .status
+            .as_ref()
+            .and_then(|status| status.addresses.as_ref())
+        else {
             continue;
         };
         let Some(a) = addrs.iter().find(|x| x.type_ == "InternalIP") else {
