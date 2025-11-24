@@ -6,35 +6,45 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/rs/zerolog/log"
+
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/scheduler"
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/influx"
-	"github.com/rs/zerolog/log"
+	
 )
 
 func main() {
-	log.Info().Msg("[EXTENDER] Starting Latency-Aware Scheduler Extender")
+	// kube client
+	kubeConfig, err := rest.InClusterConfig()
+	if err != nil {
+		log.Fatal().Err(err).Msg("[DESCHEDULER] Failed to load kube in-cluster config")
+	}
+	kubeClient, err := kubernetes.NewForConfig(kubeConfig)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create k8s clientset")
+	}
 
-	// === InfluxDB Service ===
+	// influx client
 	influxSvc := influx.NewService()
 	if influxSvc == nil {
 		log.Fatal().Msg("[EXTENDER] Failed to initialize InfluxDB client")
 	}
 
-	// === Load config & create Extender ===
-	cfg := extender.LoadScoringConfig()
-	ext := extender.NewExtender(influxSvc, influxSvc.GetBucket())
-	ext.Config = cfg
+	// load config + create extender
+	cfg := scheduler.LoadScoringConfig()
+	ext := scheduler.NewExtender(influxSvc, influxSvc.GetBucket(), kubeClient, cfg)
 
-	ext.Warmup()
-	log.Info().Msg("[EXTENDER] Warm-up routine started in background")
-
-	// === HTTP Router ===
+	// http router here
 	router := chi.NewRouter()
 	router.Use(middleware.Logger)
 	router.Use(middleware.Recoverer)
-	ext.RegisterRoutes(router) // includes /filter, /score, /bind, /health
 
-	// === Start HTTP server ===
+	ext.RegisterRoutes(router) 
+
+	// start http server
 	port := os.Getenv("PORT_EXTENDER")
 	addr := ":" + port
 
