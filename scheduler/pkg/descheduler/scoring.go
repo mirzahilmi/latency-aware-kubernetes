@@ -8,25 +8,24 @@ import (
 
 // ScoreAllNodes count all node scores using extender.ScoreNode() formula
 func (d *AdaptiveDescheduler) ScoreAllNodes(
-	proberSlice []prober.ScoreData,
-	trafficNorm map[string]float64,
-	cfg extender.ScoringConfig,
+	pmap []prober.ScoreData,
+	nmap map[string]float64,
+	schedulerCfg scheduler.ScoringConfig,
 ) map[string]float64 {
-	nodeScores := make(map[string]float64)
-	for _, s := range proberSlice {
+	scores := make(map[string]float64)
+	for _, s := range pmap {
 		nodeName := s.Hostname
-		score := extender.ScoreNode(
+		score := scheduler.ScoreNode(
 			nodeName,
 			map[string]prober.ScoreData{nodeName: s},
-			trafficNorm,
-			cfg,
+			nmap,
+			schedulerCfg,
 		)
-		nodeScores[nodeName] = float64(score)
+		scores[nodeName] = float64(score)
 		log.Debug().Msgf(
-			"[DESCHEDULER] Node %s score=%.2f (CPU=%.3f Lat=%.3f Traffic=%.3f)",
-			nodeName, float64(score), s.CPUEwmaScore, s.LatencyEwmaScore, trafficNorm[nodeName],
+			"[SCORING] Node %s score=%.2f (CPU=%.3f Lat=%.3f Traffic=%.3f)",
+			nodeName, float64(score), s.CPUEwmaScore, s.LatencyEwmaScore, nmap[nodeName],
 		)
 	}
-
-	return nodeScores
+	return scores
 }

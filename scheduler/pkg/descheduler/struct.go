@@ -1,62 +1,57 @@
 package descheduler
 
 import (
-	"context"
+	"log"
+	"os"
+	"strconv"
+	"sync"
 
-	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/scheduler"
 	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/influx"
-	"github.com/rs/zerolog/log"
+	"github.com/mirzahilmi/latency-aware-kubernetes/scheduler/pkg/scheduler"
+
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
+
 	metricsclient "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
 type AdaptiveDescheduler struct {
-	clientset     *kubernetes.Clientset
-	metricsClient *metricsclient.Clientset
+	kubeClient kubernetes.Interface
+	metricsClient metricsclient.Interface
 	influxService *influx.Service
-	bucket        string
-	namespace     string
 
-	config        extender.ScoringConfig
-	policy 		  LatencyDeschedulerPolicySpec
+	bucket string
+	namespace string
 
-	prevTopNode   string
-	isRunning bool
-	cancelFunc context.CancelFunc
+	scoringCfg scheduler.ScoringConfig
+	deschedCfg DeschedulerConfig
+	
+	mu sync.RWMutex
+	prevTopNode string
 }
 
-func NewAdaptiveDescheduler(
-	clientset *kubernetes.Clientset,
-	influxSvc *influx.Service,
-	bucket string,
-	namespace string,
-	cfg extender.ScoringConfig,
-) *AdaptiveDescheduler {
+//TODO: add memory threshold config
+type DeschedulerConfig struct {
+	interval float64 
+	idleCpuThres float64
+}
 
-	restCfg, err := rest.InClusterConfig()
-	if err != nil {
-		log.Fatal().Err(err).Msg("[DESCHEDULER] Failed to load in-cluster config for metrics client")
+func LoadDeschedulerConfig() DeschedulerConfig {
+	parse := func(key string) float64 {
+		val := os.Getenv(key)
+		f, err := strconv.ParseFloat(val, 64)
+		if err != nil {
+			log.Fatalf("invalid value for %s=%s (must be numeric)", key, val)
+		}
+		return f
 	}
-	metricsClient, err := metricsclient.NewForConfig(restCfg)
-	if err != nil {
-		log.Fatal().Err(err).Msg("[DESCHEDULER] Failed to initialize metrics client")
-	}
-
-	return &AdaptiveDescheduler{
-		clientset:     clientset,
-		metricsClient: metricsClient,
-		influxService: influxSvc,
-		bucket:        bucket,
-		namespace:     namespace,
-		config:        cfg, 
-		policy: 	   LatencyDeschedulerPolicySpec{},
-		prevTopNode:   "",
+	return DeschedulerConfig{
+		interval: parse("DESCHED_INTERVAL"),
+		idleCpuThres: parse("IDLECPU_THRESHOLD"),
 	}
 }
 
-type LatencyDeschedulerPolicySpec struct {
-    IntervalSeconds  int     `json:"intervalSeconds"`
-    IdleCPUThreshold int 	 `json:"idleCPUThreshold"`
+type Controller struct {
+    descheduler *AdaptiveDescheduler
+    cfg DeschedulerConfig
 }
 

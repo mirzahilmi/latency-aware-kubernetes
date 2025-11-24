@@ -16,7 +16,7 @@ func (d *AdaptiveDescheduler) evictIdlePod(ctx context.Context, nodeName string)
 		return err
 	}
 	if target == nil {
-		log.Warn().Msgf("[DESCHEDULER] No idle pod found to evict on node %s", nodeName)
+		log.Warn().Msgf("[EVICTION] No idle pod found to evict on node %s", nodeName)
 		return nil
 	}
 
@@ -28,8 +28,8 @@ func (d *AdaptiveDescheduler) evictIdlePod(ctx context.Context, nodeName string)
 		DeleteOptions: &metav1.DeleteOptions{},
 	}
 
-	log.Info().Msgf("[DESCHEDULER] Evicting pod %s/%s (CPU idle) from %s", target.Namespace, target.Name, nodeName)
-	return d.clientset.PolicyV1().Evictions(target.Namespace).Evict(ctx, eviction)
+	log.Info().Msgf("[EVICTION] Evicting pod %s/%s (CPU idle) from %s", target.Namespace, target.Name, nodeName)
+	return d.kubeClient.PolicyV1().Evictions(target.Namespace).Evict(ctx, eviction)
 }
 
 // skip system/infra pods
