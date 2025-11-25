@@ -158,13 +158,14 @@ pub async fn update_nftables(
                 addr: Expression::Named(NamedExpression::Map(Box::new(Map {
                     key: Expression::Named(NamedExpression::Numgen(Numgen {
                         mode: NgMode::Random,
-                        ng_mod: config.nftables.probability_cap,
+                        ng_mod: starting - 1,
                         ..Default::default()
                     })),
                     data: Expression::Named(NamedExpression::Set(verdict_pairs)),
                 })))
                 .into(),
-                port: Some(Expression::Number(8080)),
+                // scary
+                port: Some(Expression::Number(service.targetport as u32)),
                 flags: None,
             })),
         ]),

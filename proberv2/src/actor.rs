@@ -57,6 +57,7 @@ pub enum EwmaDatapoint {
 pub struct Service {
     pub name: String,
     pub nodeport: i32,
+    pub targetport: i32,
     pub endpoints_by_nodename: HashMap<String, Vec<String>>,
 }
 
@@ -254,7 +255,6 @@ impl Actor {
             expr: Cow::Owned(vec![Statement::Jump(JumpTarget {
                 target: self.config.nftables.chain_services.clone().into(),
             })]),
-            handle: Some(0),
             ..Default::default()
         }));
 
@@ -297,7 +297,6 @@ impl Actor {
                 }),
             ]),
             comment: Some("Cek IPv4 paket di list IPv4 NodePort, kalo ada langsung ke verdict map ke service yang sesuai".into()),
-            handle: Some(0),
             ..Default::default()
         }));
 
