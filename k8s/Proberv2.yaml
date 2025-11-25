@@ -1,0 +1,111 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: proberv2
+  namespace: riset
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: proberv2
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "pods", "nodes/proxy"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec", "pods/attach"]
+    verbs: ["get", "create"]
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: proberv2-role-binding
+subjects:
+  - kind: ServiceAccount
+    name: proberv2
+    namespace: riset
+roleRef:
+  kind: ClusterRole
+  name: proberv2
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: proberv2
+  namespace: riset
+spec:
+  selector:
+    matchLabels:
+      name: proberv2-app
+  template:
+    metadata:
+      labels:
+        name: proberv2-app
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: DoesNotExist
+
+      # needed this to access the host layer nftables
+      hostNetwork: true
+      serviceAccountName: proberv2
+
+      volumes:
+        - name: mount
+          secret:
+            secretName: proberv2-secrets
+      containers:
+        - name: proberv2-app
+          image: ghcr.io/mirzahilmi/proberv2:0.1.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CONFIG_PATH
+              # this probably should be hidden
+              value: /tmp/config
+            - name: RUST_LOG
+              value: proberv2=debug
+
+            - name: NODENAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+          volumeMounts:
+            - name: mount
+              readOnly: true
+              mountPath: /tmp
+
+          # readinessProbe:
+          #   httpGet:
+          #     path: /scores
+          #     port: 3000
+
+          resources:
+            limits:
+              memory: 500Mi
+            requests:
+              memory: 250Mi
+
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sleep", "10"]
+
+          securityContext:
+            runAsUser: 0
+            capabilities:
+              add:
+                - NET_ADMIN
+                - NET_RAW
