@@ -176,3 +176,6 @@ Secret.yaml
 Secret.yaml
 Secrets.yaml
 Influx-secret.yaml
+
+*Secret.yaml
+Secret*.yaml
