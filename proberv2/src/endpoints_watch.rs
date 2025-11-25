@@ -1,5 +1,5 @@
 use kube::runtime;
-use std::{collections::HashMap, net::IpAddr};
+use std::collections::HashMap;
 
 use futures::TryStreamExt;
 use k8s_openapi::api::core::v1::{EndpointSubset, Endpoints, Service as KubernetesService};
@@ -59,16 +59,13 @@ pub async fn watch_endpoints(
                         return Ok(());
                     }
                 };
-                let Some(serviceip) = service.spec.and_then(|spec| spec.cluster_ip) else {
+                let Some(nodeport) = service.spec.as_ref()
+                    .and_then(|spec| spec.ports.as_ref())
+                    .and_then(|ports| ports.first())
+                    .and_then(|port| port.node_port)
+                    else {
                     warn!("actor: cannot find the clusterIp for service {servicename}");
                     return Ok(());
-                };
-                let serviceip = match serviceip.parse::<IpAddr>() {
-                    Ok(ip) => ip,
-                    Err(e) => {
-                        error!("actor: failed to parse string ip: {e}");
-                        return Ok(());
-                    }
                 };
 
                 let mut endpoints_by_nodename = HashMap::<String, Vec<String>>::new();
@@ -94,7 +91,7 @@ pub async fn watch_endpoints(
 
                 let service = Service {
                     name: servicename,
-                    ip: serviceip,
+                    nodeport,
                     endpoints_by_nodename,
                 };
                 if let Err(e) = tx.send(Event::ServiceChanged(service)) {

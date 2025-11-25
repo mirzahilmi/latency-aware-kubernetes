@@ -10,18 +10,22 @@ use nftables::{
     types::{NfChainPolicy, NfChainType, NfFamily, NfHook},
 };
 use serde_json::json;
-use std::{collections::HashMap, net::IpAddr};
-use tokio::sync::broadcast::Sender;
-use tracing::{debug, info, warn};
+use std::{borrow::Cow, collections::HashMap, net::IpAddr, time::Duration};
+use tokio::{
+    sync::broadcast::{Sender, error::TryRecvError},
+    time,
+};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     config::Config, cpu_usage_probe::probe_cpu_usage, endpoints_watch::watch_endpoints,
-    latency_probe::probe_latency, node_watch::watch_nodes,
+    latency_probe::probe_latency, node_watch::watch_nodes, update_nftables::update_nftables,
 };
 
 pub struct Actor {
-    pub datapoint_by_nodename: HashMap<WorkerNode, Option<ScorePair>>,
     pub config: Config,
+    pub datapoint_by_nodename: HashMap<String, Option<ScorePair>>,
+    pub service_by_nodeport: HashMap<i32, Service>,
 }
 
 #[derive(Clone)]
@@ -37,7 +41,7 @@ pub struct WorkerNode {
     pub ip: IpAddr,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ScorePair {
     pub latency: f64,
     pub cpu: f64,
@@ -49,10 +53,10 @@ pub enum EwmaDatapoint {
     Cpu(f64),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Service {
     pub name: String,
-    pub ip: IpAddr,
+    pub nodeport: i32,
     pub endpoints_by_nodename: HashMap<String, Vec<String>>,
 }
 
@@ -67,13 +71,44 @@ impl Actor {
         tokio::spawn(watch_endpoints(self.config.clone(), tx.clone()));
 
         let mut rx = tx.subscribe();
-        while let Ok(event) = rx.recv().await {
+        let mut ticker = time::interval(Duration::from_secs(15));
+        'main: loop {
+            let event = match rx.try_recv() {
+                Ok(event) => event,
+                Err(TryRecvError::Closed) => break 'main,
+                Err(_) => {
+                    ticker.tick().await;
+                    for service in self.service_by_nodeport.values() {
+                        if let Err(e) = update_nftables(
+                            self.config.clone(),
+                            service.clone(),
+                            self.datapoint_by_nodename.clone(),
+                        )
+                        .await
+                        {
+                            error!("actor: reacting to service endpoints update failed: {e}");
+                        };
+                    }
+                    continue;
+                }
+            };
+
             match event {
-                Event::ServiceChanged(_) => {
-                    // not implemented yet
+                Event::ServiceChanged(service) => {
+                    self.service_by_nodeport
+                        .insert(service.nodeport, service.clone());
+                    if let Err(e) = update_nftables(
+                        self.config.clone(),
+                        service,
+                        self.datapoint_by_nodename.clone(),
+                    )
+                    .await
+                    {
+                        error!("actor: reacting to service endpoints update failed: {e}");
+                    };
                 }
                 Event::EwmaCalculated(worker, dp) => {
-                    let Some(slot) = self.datapoint_by_nodename.get_mut(&worker) else {
+                    let Some(slot) = self.datapoint_by_nodename.get_mut(&worker.name) else {
                         warn!(
                             "actor: ghost node {}:{} got ewma calculation",
                             worker.name, worker.ip
@@ -93,7 +128,7 @@ impl Actor {
                     );
                 }
                 Event::NodeJoined(worker) => {
-                    self.datapoint_by_nodename.insert(worker, None);
+                    self.datapoint_by_nodename.insert(worker.name, None);
                 }
             }
         }
@@ -124,7 +159,15 @@ impl Actor {
         let ip = a.address.parse::<IpAddr>()?;
 
         let mut batch = Batch::new();
+        batch.delete(NfListObject::Table(Table {
+            name: self.config.nftables.table.clone().into(),
+            family: NfFamily::IP,
+            ..Default::default()
+        }));
+        let ruleset = batch.to_nftables();
+        let _ = helper::apply_ruleset(&ruleset); // ignoring deletion error
 
+        let mut batch = Batch::new();
         batch.add(NfListObject::Table(Table {
             name: self.config.nftables.table.clone().into(),
             family: NfFamily::IP,
@@ -204,57 +247,55 @@ impl Actor {
         helper::apply_ruleset(&ruleset)?;
         let mut batch = Batch::new();
 
-        let jump_to_services = [Statement::Jump(JumpTarget {
-            target: self.config.nftables.chain_services.clone().into(),
-        })];
         batch.add(NfListObject::Rule(Rule {
             family: NfFamily::IP,
             table: self.config.nftables.table.clone().into(),
             chain: self.config.nftables.chain_prerouting.clone().into(),
-            expr: jump_to_services.as_ref().into(),
+            expr: Cow::Owned(vec![Statement::Jump(JumpTarget {
+                target: self.config.nftables.chain_services.clone().into(),
+            })]),
             handle: Some(0),
             ..Default::default()
         }));
 
-        let vmap_to_service_lookup = [
-            Statement::Match(Match {
-                left: NftExpression::Named(NamedExpression::Payload(Payload::PayloadField(
-                    PayloadField {
-                        protocol: "ip".into(),
-                        field: "daddr".into(),
-                    },
-                ))),
-                op: Operator::EQ,
-                right: NftExpression::String(
-                    format!("@{}", self.config.nftables.set_allowed_node_ips.clone()).into(),
-                ),
-            }),
-            Statement::VerdictMap(VerdictMap {
-                key: NftExpression::Named(NamedExpression::Concat(vec![
-                    NftExpression::Named(NamedExpression::Meta(Meta {
-                        key: MetaKey::L4proto,
-                    })),
-                    NftExpression::Named(NamedExpression::Payload(Payload::PayloadField(
-                        PayloadField {
-                            protocol: "th".into(),
-                            field: "dport".into(),
-                        },
-                    ))),
-                ])),
-                data: NftExpression::String(
-                    format!(
-                        "@{}",
-                        self.config.nftables.map_service_chain_by_nodeport.clone()
-                    )
-                    .into(),
-                ),
-            }),
-        ];
         batch.add(NfListObject::Rule(Rule {
             family: NfFamily::IP,
             table: self.config.nftables.table.clone().into(),
             chain: self.config.nftables.chain_services.clone().into(),
-            expr: vmap_to_service_lookup.as_ref().into(),
+            expr: Cow::Owned(vec![
+                Statement::Match(Match {
+                    left: NftExpression::Named(NamedExpression::Payload(Payload::PayloadField(
+                        PayloadField {
+                            protocol: "ip".into(),
+                            field: "daddr".into(),
+                        },
+                    ))),
+                    op: Operator::EQ,
+                    right: NftExpression::String(
+                        format!("@{}", self.config.nftables.set_allowed_node_ips.clone()).into(),
+                    ),
+                }),
+                Statement::VerdictMap(VerdictMap {
+                    key: NftExpression::Named(NamedExpression::Concat(vec![
+                        NftExpression::Named(NamedExpression::Meta(Meta {
+                            key: MetaKey::L4proto,
+                        })),
+                        NftExpression::Named(NamedExpression::Payload(Payload::PayloadField(
+                            PayloadField {
+                                protocol: "th".into(),
+                                field: "dport".into(),
+                            },
+                        ))),
+                    ])),
+                    data: NftExpression::String(
+                        format!(
+                            "@{}",
+                            self.config.nftables.map_service_chain_by_nodeport.clone()
+                        )
+                        .into(),
+                    ),
+                }),
+            ]),
             comment: Some("Cek IPv4 paket di list IPv4 NodePort, kalo ada langsung ke verdict map ke service yang sesuai".into()),
             handle: Some(0),
             ..Default::default()

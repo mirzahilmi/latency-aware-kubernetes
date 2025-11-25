@@ -26,4 +26,5 @@ pub struct NftablesConfig {
     pub set_allowed_node_ips: String,
     pub map_service_chain_by_nodeport: String,
     pub prefix_service_endpoint: String,
+    pub probability_cap: u32,
 }

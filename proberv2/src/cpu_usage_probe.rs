@@ -40,7 +40,7 @@ pub async fn probe_cpu_usage(config: Config, tx: broadcast::Sender<Event>) -> an
 
             let query = format!(
                 // thanks to https://stackoverflow.com/a/66263640
-                r#"avg(1 - rate(node_cpu_seconds_total{{mode="idle",instance="{}:9100"}}[5m])) by (instance)"#,
+                r#"(1 - avg(irate(node_cpu_seconds_total{{mode="idle",instance="{}:9100"}}[5m])) by (instance))"#,
                 worker.ip,
             );
 
@@ -65,7 +65,7 @@ pub async fn probe_cpu_usage(config: Config, tx: broadcast::Sender<Event>) -> an
                 warn!("actor: empty promql result");
                 continue;
             };
-            let usage = data.sample().value(); // already normalized
+            let usage = 1.0 - data.sample().value(); // already normalized
             let alpha = 0.4;
             let datapoint = match datapoint_by_nodename.get(&worker.ip) {
                 Some(datapoint) => alpha * usage + (1.0 - alpha) * *datapoint,

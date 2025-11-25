@@ -25,8 +25,9 @@ async fn main() -> anyhow::Result<()> {
     let (tx, rx) = tokio::sync::broadcast::channel(32);
     {
         let mut actor = Actor {
-            datapoint_by_nodename: HashMap::new(),
             config,
+            datapoint_by_nodename: HashMap::new(),
+            service_by_nodeport: HashMap::new(),
         };
         actor.setup_nftables().await?;
 

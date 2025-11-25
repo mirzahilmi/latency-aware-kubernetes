@@ -39,7 +39,7 @@ pub async fn probe_latency(config: Config, tx: broadcast::Sender<Event>) -> anyh
                     continue;
                 }
             };
-            let normalized = result.rtt.as_secs_f64() / config.service_level_agreement;
+            let normalized = 1.0 - result.rtt.as_secs_f64() / config.service_level_agreement;
             let alpha = 0.7;
             let datapoint = match datapoint_by_nodename.get(&worker.ip) {
                 Some(datapoint) => alpha * normalized + (1.0 - alpha) * *datapoint,
