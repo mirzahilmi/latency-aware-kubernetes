@@ -12,7 +12,7 @@ RUN \
   --mount=type=cache,target=/usr/local/cargo/registry \
   cargo build --release --frozen --target-dir /artifact
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 WORKDIR /bin
 
 RUN \

@@ -9,6 +9,7 @@ use nftables::{
     stmt::{JumpTarget, Match, Operator, Statement, VerdictMap},
     types::{NfChainPolicy, NfChainType, NfFamily, NfHook},
 };
+use serde::Serialize;
 use serde_json::json;
 use std::{borrow::Cow, collections::HashMap, net::IpAddr, time::Duration};
 use tokio::{
@@ -176,7 +177,10 @@ impl Actor {
         }));
 
         let ruleset = batch.to_nftables();
-        debug!("actor: applying table: {ruleset:?}");
+        debug!(
+            "actor: applying table: {}",
+            serde_json::to_string(&ruleset)?
+        );
         helper::apply_ruleset(&ruleset)?;
         let mut batch = Batch::new();
 
@@ -194,8 +198,8 @@ impl Actor {
                         "inet_proto",
                         "inet_service"
                       ],
-                      "comment": "VERDICTS! MUAHAHAHAHA",
                       "map": "verdict",
+                      "comment": "VERDICTS! MUAHAHAHAHA"
                     }
                   }
                 }
@@ -222,7 +226,10 @@ impl Actor {
         ));
 
         let ruleset = batch.to_nftables();
-        debug!("actor: applying set ruleset: {ruleset:?}");
+        debug!(
+            "actor: applying set ruleset: {}",
+            serde_json::to_string(&ruleset)?
+        );
         helper::apply_ruleset(&ruleset)?;
         let mut batch = Batch::new();
 
@@ -244,7 +251,10 @@ impl Actor {
         }));
 
         let ruleset = batch.to_nftables();
-        debug!("actor: applying chain: {ruleset:?}");
+        debug!(
+            "actor: applying chain: {}",
+            serde_json::to_string(&ruleset)?
+        );
         helper::apply_ruleset(&ruleset)?;
         let mut batch = Batch::new();
 
@@ -258,51 +268,59 @@ impl Actor {
             ..Default::default()
         }));
 
-        batch.add(NfListObject::Rule(Rule {
-            family: NfFamily::IP,
-            table: self.config.nftables.table.clone().into(),
-            chain: self.config.nftables.chain_services.clone().into(),
-            expr: Cow::Owned(vec![
-                Statement::Match(Match {
-                    left: NftExpression::Named(NamedExpression::Payload(Payload::PayloadField(
-                        PayloadField {
-                            protocol: "ip".into(),
-                            field: "daddr".into(),
+        let rule = json!(
+        {
+          "nftables": [
+            {
+              "add": {
+                "rule": {
+                  "family": "ip",
+                  "table": self.config.nftables.table,
+                  "chain": self.config.nftables.chain_services,
+                  "comment": "Cek IPv4 paket di list IPv4 NodePort, kalo ada langsung ke verdict map ke service yang sesuai",
+                  "expr": [
+                    {
+                      "match": {
+                        "op": "==",
+                        "left": {
+                          "payload": {
+                            "protocol": "ip",
+                            "field": "daddr"
+                          }
                         },
-                    ))),
-                    op: Operator::EQ,
-                    right: NftExpression::String(
-                        format!("@{}", self.config.nftables.set_allowed_node_ips.clone()).into(),
-                    ),
-                }),
-                Statement::VerdictMap(VerdictMap {
-                    key: NftExpression::Named(NamedExpression::Concat(vec![
-                        NftExpression::Named(NamedExpression::Meta(Meta {
-                            key: MetaKey::L4proto,
-                        })),
-                        NftExpression::Named(NamedExpression::Payload(Payload::PayloadField(
-                            PayloadField {
-                                protocol: "th".into(),
-                                field: "dport".into(),
+                        "right": format!("@{}", self.config.nftables.set_allowed_node_ips)
+                      }
+                    },
+                    {
+                      "vmap": {
+                        "key": {
+                          "concat": [
+                            {
+                              "meta": {
+                                "key": "l4proto"
+                              }
                             },
-                        ))),
-                    ])),
-                    data: NftExpression::String(
-                        format!(
-                            "@{}",
-                            self.config.nftables.map_service_chain_by_nodeport.clone()
-                        )
-                        .into(),
-                    ),
-                }),
-            ]),
-            comment: Some("Cek IPv4 paket di list IPv4 NodePort, kalo ada langsung ke verdict map ke service yang sesuai".into()),
-            ..Default::default()
-        }));
+                            {
+                              "payload": {
+                                "protocol": "th",
+                                "field": "dport"
+                              }
+                            }
+                          ]
+                        },
+                        "data": format!("@{}", self.config.nftables.map_service_chain_by_nodeport)
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+        );
 
-        let ruleset = batch.to_nftables();
-        debug!("actor: applying initial ruleset: {ruleset:?}");
-        helper::apply_ruleset(&ruleset)?;
+        debug!("actor: applying initial ruleset: {}", rule.to_string());
+        helper::apply_ruleset_raw(&rule.to_string(), None::<&str>, std::iter::empty::<&str>())?;
 
         Ok(())
     }

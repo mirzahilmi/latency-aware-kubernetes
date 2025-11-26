@@ -70,7 +70,10 @@ pub async fn update_nftables(
         ..Default::default()
     }));
     let ruleset = batch.to_nftables();
-    debug!("actor: creating base service chain: {ruleset:?}");
+    debug!(
+        "actor: creating base service chain: {}",
+        serde_json::to_string(&ruleset)?
+    );
     helper::apply_ruleset(&ruleset)?;
 
     let mut total_endpoints = 0;
@@ -175,7 +178,10 @@ pub async fn update_nftables(
     }));
 
     let ruleset = batch.to_nftables();
-    debug!("actor: attaching anonymous map routing rule: {ruleset:?}");
+    debug!(
+        "actor: attaching anonymous map routing rule: {}",
+        serde_json::to_string(&ruleset)?
+    );
     helper::apply_ruleset(&ruleset)?;
 
     // used raw because the crate does not has map type of `verdict`
