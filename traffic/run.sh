@@ -18,7 +18,7 @@ do
     k6 run \
       --out "csv=dataset/RPS_DATASET_${SOLUTION}_TESTCASE_${I}.csv" \
       --no-thresholds \
-      --no-summary \
+      --summary-mode=disabled \
       ./generation_script.js
 
   I=$((I+1))
