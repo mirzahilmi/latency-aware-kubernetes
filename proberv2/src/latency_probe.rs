@@ -39,12 +39,26 @@ pub async fn probe_latency(config: Config, tx: broadcast::Sender<Event>) -> anyh
                     continue;
                 }
             };
-            let normalized =
-                (result.rtt.as_secs_f64() / config.service_level_agreement - 1.0).abs();
-            let alpha = 0.7;
+
+            let normalized_data = if result.rtt.as_secs_f64() <= config.service_level_agreement {
+                (result.rtt.as_secs_f64() / config.service_level_agreement - 1.0).abs()
+            } else {
+                0.0
+            };
+
+            let alpha = if normalized_data < 0.2 {
+                0.8
+            } else if normalized_data < 0.4 {
+                0.6
+            } else if normalized_data < 0.6 {
+                0.4
+            } else {
+                0.2
+            };
+
             let datapoint = match datapoint_by_nodename.get(&worker.ip) {
-                Some(datapoint) => alpha * normalized + (1.0 - alpha) * *datapoint,
-                None => normalized,
+                Some(datapoint) => alpha * normalized_data + (1.0 - alpha) * *datapoint,
+                None => normalized_data,
             };
             debug!(
                 "actor: latency datapoint calculation result for {}:{} is {}",

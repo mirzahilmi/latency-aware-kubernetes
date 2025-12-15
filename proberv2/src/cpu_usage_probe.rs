@@ -65,11 +65,21 @@ pub async fn probe_cpu_usage(config: Config, tx: broadcast::Sender<Event>) -> an
                 warn!("actor: empty promql result");
                 continue;
             };
-            let usage = 1.0 - data.sample().value(); // already normalized
-            let alpha = 0.4;
+            let normalized_data = 1.0 - data.sample().value(); // already normalized
+
+            let alpha = if normalized_data < 0.2 {
+                0.8
+            } else if normalized_data < 0.4 {
+                0.6
+            } else if normalized_data < 0.6 {
+                0.4
+            } else {
+                0.2
+            };
+
             let datapoint = match datapoint_by_nodename.get(&worker.ip) {
-                Some(datapoint) => alpha * usage + (1.0 - alpha) * *datapoint,
-                None => usage,
+                Some(datapoint) => alpha * normalized_data + (1.0 - alpha) * *datapoint,
+                None => normalized_data,
             };
             debug!(
                 "actor: cpu datapoint calculation result for {}:{} is {}",
