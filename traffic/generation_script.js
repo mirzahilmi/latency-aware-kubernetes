@@ -18,6 +18,7 @@ for (let i = 0; i < distributions.length; i++) {
       duration: "30m",
       rate: Number(distributions[i]),
       preAllocatedVUs: Math.ceil(Number(distributions[i]) * 0.75),
+      maxVUs: Number(distributions[i]) * 4,
       env: { TARGET: nodes[i].ip },
   };
 }
@@ -28,6 +29,6 @@ export const options = {
 };
 
 export default function() {
-  const res = http.get(`http://${__ENV.TARGET}:30000`);
+  const res = http.get(`http://${__ENV.TARGET}:30001`);
   check(res, { "status is 200": (res) => res.status === 200 });
 }

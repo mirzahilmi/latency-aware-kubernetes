@@ -68,7 +68,7 @@ spec:
             secretName: proberv2-secrets
       containers:
         - name: proberv2-app
-          image: ghcr.io/mirzahilmi/proberv2:0.1.4
+          image: ghcr.io/mirzahilmi/proberv2:0.1.5
           imagePullPolicy: IfNotPresent
           env:
             - name: CONFIG_PATH
