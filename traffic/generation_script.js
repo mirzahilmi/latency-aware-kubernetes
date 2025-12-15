@@ -14,9 +14,10 @@ if (nodes.length == 0 || distributions.length == 0)
 var scenarios = {};
 for (let i = 0; i < distributions.length; i++) {
   scenarios[nodes[i].hostname] = {
-      executor: "constant-vus",
+      executor: "constant-arrival-rate",
       duration: "30m",
-      vus: Number(distributions[i]),
+      rate: Number(distributions[i]),
+      preAllocatedVUs: Math.ceil(Number(distributions[i]) * 0.75),
       env: { TARGET: nodes[i].ip },
   };
 }
