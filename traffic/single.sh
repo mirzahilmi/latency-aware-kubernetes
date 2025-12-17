@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+
+DISTRIBUTIONS="1200,800,800,800"
+SOLUTION="SOLUTION"
+
+mkdir -p dataset
+
+echo "Running testcase=$I with DISTRIBUTIONS=$dists at $(date --iso-8601=minutes)+07:00"
+
+DISTRIBUTIONS="$DISTRIBUTIONS" DURATION="10m" \
+  k6 run \
+    --out "csv=dataset/RPS_DATASET_${SOLUTION}_TESTCASE_0.csv" \
+    --no-thresholds \
+    ./generation_script.js

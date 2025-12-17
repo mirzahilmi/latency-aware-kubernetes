@@ -15,7 +15,7 @@ var scenarios = {};
 for (let i = 0; i < distributions.length; i++) {
   scenarios[nodes[i].hostname] = {
       executor: "constant-arrival-rate",
-      duration: "20m",
+      duration: __ENV.DURATION,
       rate: Number(distributions[i]),
       preAllocatedVUs: Math.ceil(Number(distributions[i]) * 0.75),
       maxVUs: Number(distributions[i]) * 4,
