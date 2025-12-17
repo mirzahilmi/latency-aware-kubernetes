@@ -112,10 +112,10 @@ pub async fn update_nftables(
             else {
                 return;
             };
-            let score = datapoint.latency + datapoint.cpu;
-            if score <= 0.0 {
+            if datapoint.latency == 0.0 || datapoint.cpu == 0.0 {
                 return;
             }
+            let score = datapoint.latency + datapoint.cpu;
 
             let score_percentage = score / total_datapoints;
             let node_portion = (score_percentage * probability_cap as f64).round() as u32;
