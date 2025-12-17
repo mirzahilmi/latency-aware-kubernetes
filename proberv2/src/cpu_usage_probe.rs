@@ -65,7 +65,8 @@ pub async fn probe_cpu_usage(config: Config, tx: broadcast::Sender<Event>) -> an
                 warn!("actor: empty promql result");
                 continue;
             };
-            let normalized_data = 1.0 - data.sample().value(); // already normalized
+            let cpu_usage = data.sample().value();
+            let normalized_data = 1.0 - cpu_usage;
 
             let alpha = if normalized_data < 0.2 {
                 0.8

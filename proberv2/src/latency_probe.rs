@@ -41,7 +41,7 @@ pub async fn probe_latency(config: Config, tx: broadcast::Sender<Event>) -> anyh
             };
 
             let normalized_data = if result.rtt.as_secs_f64() <= config.service_level_agreement {
-                (result.rtt.as_secs_f64() / config.service_level_agreement - 1.0).abs()
+                1.0 - result.rtt.as_secs_f64() / config.service_level_agreement
             } else {
                 0.0
             };

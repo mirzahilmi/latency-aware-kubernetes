@@ -17,7 +17,6 @@ use crate::{
     actor::{ScorePair, Service},
     config::Config,
 };
-
 pub async fn update_nftables(
     config: Config,
     service: Service,
@@ -42,6 +41,7 @@ pub async fn update_nftables(
         config.nftables.prefix_service_endpoint, service.name
     );
 
+    // Flush chain if it exists, otherwise create it
     let mut batch = Batch::new();
     batch.add_cmd(NfCmd::Flush(FlushObject::Chain(Chain {
         family: NfFamily::IP,
@@ -49,32 +49,18 @@ pub async fn update_nftables(
         name: chain.clone().into(),
         ..Default::default()
     })));
-    let ruleset = batch.to_nftables();
-    let _ = helper::apply_ruleset(&ruleset); // ignoring chain flush error
 
-    let mut batch = Batch::new();
-    batch.delete(NfListObject::Chain(Chain {
-        family: NfFamily::IP,
-        table: config.nftables.table.clone().into(),
-        name: chain.clone().into(),
-        ..Default::default()
-    }));
-    let ruleset = batch.to_nftables();
-    let _ = helper::apply_ruleset(&ruleset); // ignoring chain deletion error
-
-    let mut batch = Batch::new();
-    batch.add(NfListObject::Chain(Chain {
-        family: NfFamily::IP,
-        table: config.nftables.table.clone().into(),
-        name: chain.clone().into(),
-        ..Default::default()
-    }));
-    let ruleset = batch.to_nftables();
-    debug!(
-        "actor: creating base service chain: {}",
-        serde_json::to_string(&ruleset)?
-    );
-    helper::apply_ruleset(&ruleset)?;
+    // If flush fails, chain doesn't exist - create it
+    if helper::apply_ruleset(&batch.to_nftables()).is_err() {
+        let mut batch = Batch::new();
+        batch.add(NfListObject::Chain(Chain {
+            family: NfFamily::IP,
+            table: config.nftables.table.clone().into(),
+            name: chain.clone().into(),
+            ..Default::default()
+        }));
+        helper::apply_ruleset(&batch.to_nftables())?;
+    }
 
     let mut total_endpoints = 0;
     let mut total_datapoints = 0.0;
@@ -90,8 +76,12 @@ pub async fn update_nftables(
                 warn!("actor: skipping nodename {nodename} that still does not have datapoint");
                 return;
             };
+            let score = datapoint.latency + datapoint.cpu;
+            if score <= 0.0 {
+                return;
+            }
             total_endpoints += endpoints.len();
-            total_datapoints += datapoint.latency + datapoint.cpu;
+            total_datapoints += score;
         });
 
     if total_endpoints < 2 {
@@ -100,13 +90,18 @@ pub async fn update_nftables(
             service.name,
         );
         return Ok(());
-    } else if total_datapoints < 1.0 {
-        warn!("actor: skipping total datapoints only results into {total_datapoints}",);
+    } else if total_datapoints <= 0.0 {
+        warn!(
+            "actor: skipping service {} - total datapoints is {}",
+            service.name, total_datapoints
+        );
         return Ok(());
     }
 
     let mut verdict_pairs = Vec::<SetItem>::new();
-    let mut starting = 0;
+    let mut starting = 0u32;
+    let probability_cap = config.nftables.probability_cap;
+
     service
         .endpoints_by_nodename
         .iter()
@@ -117,27 +112,95 @@ pub async fn update_nftables(
             else {
                 return;
             };
-            let score_percentage = (datapoint.latency + datapoint.cpu) / total_datapoints;
-            let node_portion = score_percentage * config.nftables.probability_cap as f64;
-            // scary
-            let portion_each = (node_portion / endpoints.len() as f64) as u32;
+            let score = datapoint.latency + datapoint.cpu;
+            if score <= 0.0 {
+                return;
+            }
 
-            endpoints.iter().for_each(|endpoint| {
+            let score_percentage = score / total_datapoints;
+            let node_portion = (score_percentage * probability_cap as f64).round() as u32;
+
+            if node_portion == 0 {
+                warn!("actor: node {} got 0 portion, skipping", nodename);
+                return;
+            }
+
+            // Distribute evenly across endpoints, using floor to stay within bounds
+            let portion_each = node_portion / endpoints.len() as u32;
+            let remainder = node_portion % endpoints.len() as u32;
+
+            if portion_each == 0 {
+                warn!(
+                    "actor: portion_each is 0 for node {} with {} endpoints",
+                    nodename,
+                    endpoints.len()
+                );
+                return;
+            }
+
+            for (idx, endpoint) in endpoints.iter().enumerate() {
+                // Give remainder to first few endpoints
+                let this_portion = if idx < remainder as usize {
+                    portion_each + 1
+                } else {
+                    portion_each
+                };
+
+                // Safety check: don't exceed probability_cap
+                if starting >= probability_cap {
+                    warn!(
+                        "actor: reached probability_cap limit, stopping at {}",
+                        starting
+                    );
+                    return;
+                }
+
+                let end = (starting + this_portion - 1).min(probability_cap - 1);
+
+                debug!(
+                    "actor: mapping range [{}, {}] to {}",
+                    starting, end, endpoint
+                );
+
                 verdict_pairs.push(SetItem::Mapping(
                     Expression::Range(
                         Range {
-                            range: [
-                                Expression::Number(starting),
-                                Expression::Number(starting + portion_each),
-                            ],
+                            range: [Expression::Number(starting), Expression::Number(end)],
                         }
                         .into(),
                     ),
                     Expression::String(endpoint.into()),
                 ));
-                starting += portion_each + 1;
-            });
+                starting = end + 1;
+
+                if starting >= probability_cap {
+                    break;
+                }
+            }
         });
+
+    // CRITICAL: Check if we have any mappings
+    if verdict_pairs.is_empty() {
+        warn!(
+            "actor: no verdict pairs generated for service {}, skipping",
+            service.name
+        );
+        return Ok(());
+    }
+
+    // CRITICAL: Validate ng_mod value
+    let ng_mod_value = if starting > 0 {
+        starting - 1
+    } else {
+        probability_cap - 1
+    };
+
+    debug!(
+        "actor: generated {} verdict pairs, range coverage: [0, {}], ng_mod: {}",
+        verdict_pairs.len(),
+        starting - 1,
+        ng_mod_value
+    );
 
     let mut batch = Batch::new();
     batch.add(NfListObject::Rule(Rule {
@@ -152,7 +215,6 @@ pub async fn update_nftables(
                         field: Cow::Borrowed("dport"),
                     },
                 ))),
-                // scary
                 right: Expression::Number(service.nodeport as u32),
                 op: Operator::EQ,
             }),
@@ -161,18 +223,17 @@ pub async fn update_nftables(
                 addr: Expression::Named(NamedExpression::Map(Box::new(Map {
                     key: Expression::Named(NamedExpression::Numgen(Numgen {
                         mode: NgMode::Random,
-                        ng_mod: starting - 1,
+                        ng_mod: ng_mod_value,
                         ..Default::default()
                     })),
                     data: Expression::Named(NamedExpression::Set(verdict_pairs)),
                 })))
                 .into(),
-                // scary
                 port: Some(Expression::Number(service.targetport as u32)),
                 flags: None,
             })),
         ]),
-        comment: Some(format!("Ini chains buat load balancing service {}", chain).into()),
+        comment: Some(format!("Load balancing for service {}", chain).into()),
         handle: Some(0),
         ..Default::default()
     }));
@@ -184,7 +245,6 @@ pub async fn update_nftables(
     );
     helper::apply_ruleset(&ruleset)?;
 
-    // used raw because the crate does not has map type of `verdict`
     helper::apply_ruleset_raw(
         json!({
           "nftables": [
