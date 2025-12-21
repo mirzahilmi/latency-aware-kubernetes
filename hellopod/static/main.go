@@ -53,9 +53,10 @@ func main() {
 		panic(err)
 	}
 	cpuCostDuration := time.Duration(cpuCost) * time.Millisecond
+	_ = cpuCostDuration
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		exercise(cpuCostDuration)
+		// exercise(cpuCostDuration)
 
 		tmpl, err := template.ParseFS(templatesFs, "index.html")
 		if err != nil {
