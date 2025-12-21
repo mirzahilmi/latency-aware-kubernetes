@@ -67,15 +67,6 @@ spec:
                 fieldRef:
                   fieldPath: status.hostIP
 
-          readinessProbe:
-            httpGet:
-              path: /
-              port: 8080
-          livenessProbe:
-            httpGet:
-              path: /
-              port: 8080
-
           resources:
             limits:
               cpu: 300m
