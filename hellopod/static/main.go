@@ -3,24 +3,17 @@ package main
 import (
 	"embed"
 	"fmt"
-	"html/template"
 	"net/http"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/template/html/v2"
 )
 
 //go:embed index.html
 var templatesFs embed.FS
-
-type data struct {
-	HostName,
-	HostIpv4,
-	PodName,
-	PodNamespace,
-	PodIpv4,
-	Result string
-}
 
 func main() {
 	hostName := os.Getenv("NODE_NAME")
@@ -55,23 +48,21 @@ func main() {
 	cpuCostDuration := time.Duration(cpuCost) * time.Millisecond
 	_ = cpuCostDuration
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// exercise(cpuCostDuration)
+	r := fiber.New(fiber.Config{
+		Prefork: true,
+		AppName: "Hellopod Static",
+		Views:   html.NewFileSystem(http.FS(templatesFs), ".html"),
+	})
 
-		tmpl, err := template.ParseFS(templatesFs, "index.html")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		data := data{
-			HostName:     hostName,
-			HostIpv4:     hostIpv4,
-			PodName:      podName,
-			PodNamespace: podNamespace,
-			PodIpv4:      podIpv4,
-		}
-		tmpl.Execute(w, data)
+	r.Get("/", func(c *fiber.Ctx) error {
+		exercise(cpuCostDuration)
+		return c.Render("index", fiber.Map{
+			"HostName":     hostName,
+			"HostIpv4":     hostIpv4,
+			"PodName":      podName,
+			"PodNamespace": podNamespace,
+			"PodIpv4":      podIpv4,
+		})
 	})
 
 	envPort := os.Getenv("PORT")
@@ -82,7 +73,9 @@ func main() {
 	addr := fmt.Sprintf(":%d", port)
 
 	fmt.Printf("Listening HTTP on address %s\n", addr)
-	http.ListenAndServe(addr, nil)
+	if err := r.Listen(addr); err != nil {
+		panic(err)
+	}
 }
 
 func isPrime(n int) bool {
