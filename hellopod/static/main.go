@@ -1,8 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
 	"embed"
 	"fmt"
 	"html/template"
@@ -10,10 +8,6 @@ import (
 	"os"
 	"strconv"
 	"time"
-)
-
-const (
-	ITERS = 10_000
 )
 
 //go:embed index.html
@@ -25,7 +19,7 @@ type data struct {
 	PodName,
 	PodNamespace,
 	PodIpv4,
-	OpIters string
+	Result string
 }
 
 func main() {
@@ -59,15 +53,9 @@ func main() {
 		panic(err)
 	}
 	cpuCostDuration := time.Duration(cpuCost) * time.Millisecond
-	iters := calculateIterations(cpuCostDuration)
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		h := sha256.New()
-		for range iters {
-			b := make([]byte, 1024) // 1 KiB
-			rand.Read(b)
-			h.Write(b)
-		}
+		exercise(cpuCostDuration)
 
 		tmpl, err := template.ParseFS(templatesFs, "index.html")
 		if err != nil {
@@ -81,7 +69,6 @@ func main() {
 			PodName:      podName,
 			PodNamespace: podNamespace,
 			PodIpv4:      podIpv4,
-			OpIters:      fmt.Sprintf("%x", h.Sum(nil)),
 		}
 		tmpl.Execute(w, data)
 	})
@@ -97,18 +84,23 @@ func main() {
 	http.ListenAndServe(addr, nil)
 }
 
-func calculateIterations(duration time.Duration) int64 {
-	start := time.Now()
-	h := sha256.New()
-	for range ITERS {
-		b := make([]byte, 1024) // 1 KiB
-		rand.Read(b)
-		h.Write(b)
+func isPrime(n int) bool {
+	if n < 2 {
+		return false
 	}
-	elapsed := time.Since(start)
+	for i := 2; i*i <= n; i++ {
+		if n%i == 0 {
+			return false
+		}
+	}
+	return true
+}
 
-	costPerIter := elapsed / ITERS
-	iters := int64(duration / costPerIter)
-
-	return iters
+func exercise(duration time.Duration) {
+	start := time.Now()
+	n := 2
+	for time.Since(start) < duration {
+		isPrime(n)
+		n++
+	}
 }
