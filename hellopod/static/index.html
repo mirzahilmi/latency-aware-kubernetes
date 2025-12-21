@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hellopod 😛</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #1a1f2e;
+            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        h1 {
+            font-size: 4rem;
+            font-weight: 700;
+            margin-bottom: 3rem;
+            text-align: center;
+        }
+
+        .info-table {
+            max-width: 600px;
+            width: 100%;
+            margin-bottom: 4rem;
+        }
+
+        .info-row {
+            display: flex;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid #2a3142;
+        }
+
+        .info-label {
+            flex: 0 0 200px;
+            font-weight: 600;
+            color: #a8b2c8;
+        }
+
+        .info-value {
+            flex: 1;
+            color: #ffffff;
+        }
+
+        .footer {
+            text-align: center;
+            color: #a8b2c8;
+            font-size: 0.95rem;
+        }
+    </style>
+</head>
+<body>
+    <h1>Hellopod 😛</h1>
+
+    <div class="info-table">
+        <div class="info-row">
+            <div class="info-label">Node Name:</div>
+            <div class="info-value">{{.HostName}}</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">Node IP:</div>
+            <div class="info-value">{{.HostIpv4}}</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">Pod Name:</div>
+            <div class="info-value">{{.PodName}}</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">Pod Namespace:</div>
+            <div class="info-value">{{.PodNamespace}}</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">Pod IP:</div>
+            <div class="info-value">{{.PodIpv4}}</div>
+        </div>
+        <div class="info-row">
+            <div class="info-label">Digest:</div>
+            <div class="info-value">{{.OpIters}}</div>
+        </div>
+    </div>
+
+    <div class="footer">
+        Built with Go and HTMX
+    </div>
+</body>
+</html>
