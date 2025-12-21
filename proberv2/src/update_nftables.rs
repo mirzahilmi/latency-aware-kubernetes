@@ -41,27 +41,6 @@ pub async fn update_nftables(
         config.nftables.prefix_service_endpoint, service.name
     );
 
-    // Flush chain if it exists, otherwise create it
-    let mut batch = Batch::new();
-    batch.add_cmd(NfCmd::Flush(FlushObject::Chain(Chain {
-        family: NfFamily::IP,
-        table: config.nftables.table.clone().into(),
-        name: chain.clone().into(),
-        ..Default::default()
-    })));
-
-    // If flush fails, chain doesn't exist - create it
-    if helper::apply_ruleset(&batch.to_nftables()).is_err() {
-        let mut batch = Batch::new();
-        batch.add(NfListObject::Chain(Chain {
-            family: NfFamily::IP,
-            table: config.nftables.table.clone().into(),
-            name: chain.clone().into(),
-            ..Default::default()
-        }));
-        helper::apply_ruleset(&batch.to_nftables())?;
-    }
-
     let mut total_endpoints = 0;
     let mut total_datapoints = 0.0;
 
@@ -157,11 +136,6 @@ pub async fn update_nftables(
 
                 let end = (starting + this_portion - 1).min(probability_cap - 1);
 
-                debug!(
-                    "actor: mapping range [{}, {}] to {}",
-                    starting, end, endpoint
-                );
-
                 verdict_pairs.push(SetItem::Mapping(
                     Expression::Range(
                         Range {
@@ -201,6 +175,27 @@ pub async fn update_nftables(
         starting - 1,
         ng_mod_value
     );
+
+    // Flush chain if it exists, otherwise create it
+    let mut batch = Batch::new();
+    batch.add_cmd(NfCmd::Flush(FlushObject::Chain(Chain {
+        family: NfFamily::IP,
+        table: config.nftables.table.clone().into(),
+        name: chain.clone().into(),
+        ..Default::default()
+    })));
+
+    // If flush fails, chain doesn't exist - create it
+    if helper::apply_ruleset(&batch.to_nftables()).is_err() {
+        let mut batch = Batch::new();
+        batch.add(NfListObject::Chain(Chain {
+            family: NfFamily::IP,
+            table: config.nftables.table.clone().into(),
+            name: chain.clone().into(),
+            ..Default::default()
+        }));
+        helper::apply_ruleset(&batch.to_nftables())?;
+    }
 
     let mut batch = Batch::new();
     batch.add(NfListObject::Rule(Rule {

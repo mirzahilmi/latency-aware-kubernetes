@@ -3,13 +3,12 @@ use k8s_openapi::api::core::v1::Node;
 use kube::{Api, Client, ResourceExt};
 use nftables::{
     batch::Batch,
-    expr::{Expression as NftExpression, Meta, MetaKey, NamedExpression, Payload, PayloadField},
+    expr::Expression as NftExpression,
     helper,
     schema::{Chain, NfListObject, Rule, Set, SetType, SetTypeValue, Table},
-    stmt::{JumpTarget, Match, Operator, Statement, VerdictMap},
+    stmt::{JumpTarget, Statement},
     types::{NfChainPolicy, NfChainType, NfFamily, NfHook},
 };
-use serde::Serialize;
 use serde_json::json;
 use std::{borrow::Cow, collections::HashMap, net::IpAddr, time::Duration};
 use tokio::{
