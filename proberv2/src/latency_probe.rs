@@ -60,12 +60,6 @@ pub async fn probe_latency(config: Config, tx: broadcast::Sender<Event>) -> anyh
                 Some(datapoint) => alpha * normalized_data + (1.0 - alpha) * *datapoint,
                 None => normalized_data,
             };
-            debug!(
-                "actor: latency datapoint calculation result for {}:{} is {}",
-                worker.name,
-                worker.ip.to_string(),
-                datapoint,
-            );
             datapoint_by_nodename.insert(worker.ip, datapoint);
             if let Err(e) = tx.send(Event::EwmaCalculated(
                 worker.clone(),

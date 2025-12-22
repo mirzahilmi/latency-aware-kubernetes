@@ -19,9 +19,17 @@ enum Control<E> {
 pub async fn watch_nodes(tx: broadcast::Sender<Event>) -> anyhow::Result<()> {
     let client = Client::try_default().await?;
     let api: Api<Node> = Api::all(client);
-    let matcher = ListParams::default().labels_from(
-        &Expression::DoesNotExist("node-role.kubernetes.io/control-plane".to_string()).into(),
-    );
+    let matcher = ListParams::default()
+        .labels_from(
+            &Expression::DoesNotExist("node-role.kubernetes.io/control-plane".to_string()).into(),
+        )
+        .labels_from(
+            &Expression::Equal(
+                "node-role.kubernetes.io/worker".to_string(),
+                "true".to_string(),
+            )
+            .into(),
+        );
 
     // initial discovery
     let nodes = api.list(&matcher).await?;

@@ -82,10 +82,6 @@ pub async fn probe_cpu_usage(config: Config, tx: broadcast::Sender<Event>) -> an
                 Some(datapoint) => alpha * normalized_data + (1.0 - alpha) * *datapoint,
                 None => normalized_data,
             };
-            debug!(
-                "actor: cpu datapoint calculation result for {}:{} is {}",
-                worker.name, worker.ip, datapoint,
-            );
             datapoint_by_nodename.insert(worker.ip, datapoint);
             if let Err(e) = tx.send(Event::EwmaCalculated(
                 worker.clone(),

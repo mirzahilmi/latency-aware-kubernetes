@@ -55,10 +55,11 @@ pub async fn update_nftables(
                 warn!("actor: skipping nodename {nodename} that still does not have datapoint");
                 return;
             };
-            let score = datapoint.latency + datapoint.cpu;
-            if score <= 0.0 {
+            // just skip if cpu is 100% busy
+            if datapoint.cpu == 0.0 {
                 return;
             }
+            let score = datapoint.latency + datapoint.cpu;
             total_endpoints += endpoints.len();
             total_datapoints += score;
         });
@@ -80,6 +81,7 @@ pub async fn update_nftables(
     let mut verdict_pairs = Vec::<SetItem>::new();
     let mut starting = 0u32;
     let probability_cap = config.nftables.probability_cap;
+    let mut score_by_nodename = HashMap::new();
 
     service
         .endpoints_by_nodename
@@ -91,12 +93,14 @@ pub async fn update_nftables(
             else {
                 return;
             };
-            if datapoint.latency == 0.0 || datapoint.cpu == 0.0 {
+            // just skip if cpu is 100% busy
+            if datapoint.cpu == 0.0 {
                 return;
             }
             let score = datapoint.latency + datapoint.cpu;
 
             let score_percentage = score / total_datapoints;
+            score_by_nodename.insert(nodename.clone(), score_percentage * 100.0);
             let node_portion = (score_percentage * probability_cap as f64).round() as u32;
 
             if node_portion == 0 {
@@ -152,6 +156,7 @@ pub async fn update_nftables(
                 }
             }
         });
+    info!("actor: node scores: {score_by_nodename:?}");
 
     // CRITICAL: Check if we have any mappings
     if verdict_pairs.is_empty() {
