@@ -5,7 +5,7 @@ metadata:
   name: hellopod-static
   namespace: riset
 spec:
-  replicas: 8
+  replicas: 16
   selector:
     matchLabels:
       app: hellopod-static
@@ -23,9 +23,18 @@ spec:
                     operator: DoesNotExist
                   - key: node-role.kubernetes.io/worker
                     operator: Exists
+
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: hellopod-static
+
       containers:
         - name: hellopod-static-app
-          image: ghcr.io/mirzahilmi/hellopod-static:1.0.0
+          image: ghcr.io/mirzahilmi/hellopod-static:1.0.3
           imagePullPolicy: IfNotPresent
 
           ports:
@@ -36,7 +45,7 @@ spec:
             - name: PORT
               value: "8080"
             - name: TARGET_CPU_COST_IN_MILLISECONDS
-              value: "5"
+              value: "2"
 
             - name: POD_NAME
               valueFrom:
@@ -72,7 +81,7 @@ spec:
               cpu: 300m
               memory: 100Mi
             requests:
-              cpu: 250m
+              cpu: 100m
               memory: 100Mi
 
           # per-container security context
