@@ -23,6 +23,6 @@ export const options = {
 };
 
 export default function() {
-  const res = http.get(`http://${__ENV.TARGET}:30000`);
+  const res = http.get(`http://${__ENV.TARGET}:30002`);
   check(res, { "status is 200": (res) => res.status === 200 });
 }
