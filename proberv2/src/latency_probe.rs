@@ -1,6 +1,5 @@
 use std::{
     collections::{HashMap, HashSet},
-    f64::consts::E,
     net::IpAddr,
 };
 
@@ -41,11 +40,7 @@ pub async fn probe_latency(config: Config, tx: broadcast::Sender<Event>) -> anyh
                 }
             };
 
-            let normalized_data = if result.rtt.as_secs_f64() <= config.service_level_agreement {
-                1.0 - result.rtt.as_secs_f64() / config.service_level_agreement
-            } else {
-                0.0
-            };
+            let normalized_data = result.rtt.as_secs_f64() / config.service_level_agreement;
 
             let alpha = if normalized_data < 0.2 {
                 0.8
@@ -57,11 +52,10 @@ pub async fn probe_latency(config: Config, tx: broadcast::Sender<Event>) -> anyh
                 0.2
             };
 
-            let mut datapoint = match datapoint_by_nodename.get(&worker.ip) {
+            let datapoint = match datapoint_by_nodename.get(&worker.ip) {
                 Some(datapoint) => alpha * normalized_data + (1.0 - alpha) * *datapoint,
                 None => normalized_data,
             };
-            datapoint = E.powf(-config.exponential_decay_constant * datapoint);
             datapoint_by_nodename.insert(worker.ip, datapoint);
             if let Err(e) = tx.send(Event::EwmaCalculated(
                 worker.clone(),

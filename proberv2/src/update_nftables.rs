@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::{borrow::Cow, collections::HashMap, f64::consts::E};
 
 use nftables::{
     batch::Batch,
@@ -59,7 +59,8 @@ pub async fn update_nftables(
             if datapoint.cpu == 0.0 {
                 return;
             }
-            let score = datapoint.latency * datapoint.cpu;
+            let score = E.powf(-config.exponential_decay_constant * datapoint.latency)
+                * E.powf(-config.exponential_decay_constant * datapoint.cpu);
             total_endpoints += endpoints.len();
             total_datapoints += score;
         });
@@ -93,7 +94,8 @@ pub async fn update_nftables(
             else {
                 return;
             };
-            let score = datapoint.latency * datapoint.cpu;
+            let score = E.powf(-config.exponential_decay_constant * datapoint.latency)
+                * E.powf(-config.exponential_decay_constant * datapoint.cpu);
 
             let score_percentage = score / total_datapoints;
             score_by_nodename.insert(nodename.clone(), score_percentage * 100.0);

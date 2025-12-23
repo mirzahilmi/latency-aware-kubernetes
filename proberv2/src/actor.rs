@@ -129,7 +129,9 @@ impl Actor {
                     );
                 }
                 Event::NodeJoined(worker) => {
-                    self.datapoint_by_nodename.insert(worker.name, None);
+                    self.datapoint_by_nodename
+                        .entry(worker.name)
+                        .or_insert(None);
                 }
             }
         }
@@ -266,6 +268,12 @@ impl Actor {
             })]),
             ..Default::default()
         }));
+        let ruleset = batch.to_nftables();
+        debug!(
+            "actor: applying chain: {}",
+            serde_json::to_string(&ruleset)?
+        );
+        helper::apply_ruleset(&ruleset)?;
 
         let rule = json!(
         {

@@ -1,6 +1,5 @@
 use std::{
     collections::{HashMap, HashSet},
-    f64::consts::E,
     net::IpAddr,
 };
 
@@ -66,8 +65,7 @@ pub async fn probe_cpu_usage(config: Config, tx: broadcast::Sender<Event>) -> an
                 warn!("actor: empty promql result");
                 continue;
             };
-            let cpu_usage = data.sample().value();
-            let normalized_data = 1.0 - cpu_usage;
+            let normalized_data = data.sample().value();
 
             let alpha = if normalized_data < 0.2 {
                 0.8
@@ -79,11 +77,10 @@ pub async fn probe_cpu_usage(config: Config, tx: broadcast::Sender<Event>) -> an
                 0.2
             };
 
-            let mut datapoint = match datapoint_by_nodename.get(&worker.ip) {
+            let datapoint = match datapoint_by_nodename.get(&worker.ip) {
                 Some(datapoint) => alpha * normalized_data + (1.0 - alpha) * *datapoint,
                 None => normalized_data,
             };
-            datapoint = E.powf(-config.exponential_decay_constant * datapoint);
             datapoint_by_nodename.insert(worker.ip, datapoint);
             if let Err(e) = tx.send(Event::EwmaCalculated(
                 worker.clone(),
