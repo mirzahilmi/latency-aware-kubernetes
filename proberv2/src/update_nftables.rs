@@ -59,7 +59,7 @@ pub async fn update_nftables(
             if datapoint.cpu == 0.0 {
                 return;
             }
-            let score = datapoint.latency + datapoint.cpu;
+            let score = datapoint.latency * datapoint.cpu;
             total_endpoints += endpoints.len();
             total_datapoints += score;
         });
@@ -93,11 +93,7 @@ pub async fn update_nftables(
             else {
                 return;
             };
-            // just skip if cpu is 100% busy
-            if datapoint.cpu == 0.0 {
-                return;
-            }
-            let score = datapoint.latency + datapoint.cpu;
+            let score = datapoint.latency * datapoint.cpu;
 
             let score_percentage = score / total_datapoints;
             score_by_nodename.insert(nodename.clone(), score_percentage * 100.0);

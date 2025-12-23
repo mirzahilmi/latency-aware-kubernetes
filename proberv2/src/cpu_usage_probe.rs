@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    f64::consts::E,
     net::IpAddr,
 };
 
@@ -12,7 +13,7 @@ use tokio::{
     sync::broadcast,
     time::{Duration, interval},
 };
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 pub async fn probe_cpu_usage(config: Config, tx: broadcast::Sender<Event>) -> anyhow::Result<()> {
     let mut ticker = interval(Duration::from_secs(15));
@@ -78,10 +79,11 @@ pub async fn probe_cpu_usage(config: Config, tx: broadcast::Sender<Event>) -> an
                 0.2
             };
 
-            let datapoint = match datapoint_by_nodename.get(&worker.ip) {
+            let mut datapoint = match datapoint_by_nodename.get(&worker.ip) {
                 Some(datapoint) => alpha * normalized_data + (1.0 - alpha) * *datapoint,
                 None => normalized_data,
             };
+            datapoint = E.powf(-config.exponential_decay_constant * datapoint);
             datapoint_by_nodename.insert(worker.ip, datapoint);
             if let Err(e) = tx.send(Event::EwmaCalculated(
                 worker.clone(),

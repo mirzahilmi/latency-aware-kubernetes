@@ -4,6 +4,7 @@ use serde::Deserialize;
 #[serde(rename_all = "camelCase")]
 pub struct Config {
     pub service_level_agreement: f64,
+    pub exponential_decay_constant: f64,
     #[serde(skip)]
     pub node_name: String,
     pub namespace: String,
