@@ -3,11 +3,12 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
-    pub service_level_agreement: f64,
+    pub service_level_agreement: u128,
     pub exponential_decay_constant: f64,
     #[serde(skip)]
     pub node_name: String,
     pub namespace: String,
+    pub app_port: String,
     pub prometheus: PrometheusConfig,
     pub nftables: NftablesConfig,
 }

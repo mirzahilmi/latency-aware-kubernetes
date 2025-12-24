@@ -20,7 +20,6 @@ async fn main() -> anyhow::Result<()> {
 
     let node_name = env::var("NODENAME")?;
     config.node_name = node_name;
-    config.service_level_agreement /= 1000.0; // to second
 
     let (tx, rx) = tokio::sync::broadcast::channel(32);
     {

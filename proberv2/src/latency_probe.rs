@@ -6,10 +6,9 @@ use std::{
 use crate::config::Config;
 
 use super::actor::{Event, EwmaDatapoint, WorkerNode};
-use ping::SocketType;
 use tokio::{
     sync::broadcast,
-    time::{Duration, interval},
+    time::{Duration, Instant, interval},
 };
 use tracing::{error, info};
 
@@ -27,20 +26,16 @@ pub async fn probe_latency(config: Config, tx: broadcast::Sender<Event>) -> anyh
         }
 
         for worker in &nodes {
-            let result = match ping::new(worker.ip).socket_type(SocketType::RAW).send() {
-                Ok(result) => result,
-                Err(e) => {
-                    error!(
-                        "actor: failed to ping node {}:{}: {}",
-                        worker.name,
-                        worker.ip.to_string(),
-                        e,
-                    );
-                    continue;
-                }
+            let now = Instant::now();
+            if let Err(e) = reqwest::get(format!("http://{}:{}", worker.ip, config.app_port)).await
+            {
+                error!("actor: failed to probe http request: {e}");
+                continue;
             };
 
-            let normalized_data = result.rtt.as_secs_f64() / config.service_level_agreement;
+            // scary
+            let normalized_data =
+                (now.elapsed().as_millis() / config.service_level_agreement) as f64;
 
             let alpha = if normalized_data < 0.2 {
                 0.8
