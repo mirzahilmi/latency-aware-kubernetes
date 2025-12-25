@@ -1,5 +1,5 @@
 use kube::runtime;
-use std::collections::HashMap;
+use std::{collections::HashMap, net::Ipv4Addr};
 
 use futures::TryStreamExt;
 use k8s_openapi::{
@@ -28,10 +28,14 @@ pub async fn watch_endpoints(
     tx: broadcast::Sender<Event>,
 ) -> anyhow::Result<()> {
     let client = Client::try_default().await?;
-    let endpoints_api: Api<Endpoints> = Api::namespaced(client.clone(), &config.namespace);
-    let service_api: Api<KubernetesService> = Api::namespaced(client, &config.namespace);
+    let endpoints_api: Api<Endpoints> =
+        Api::namespaced(client.clone(), &config.kubernetes.namespace);
+    let service_api: Api<KubernetesService> = Api::namespaced(client, &config.kubernetes.namespace);
 
-    let result = runtime::watcher(endpoints_api, Config::default())
+    let result = runtime::watcher(
+        endpoints_api,
+        Config::default().fields(&format!("metadata.name={}", config.kubernetes.service)),
+    )
         .applied_objects()
         .default_backoff()
         .map_err(Control::Watcher)
@@ -80,9 +84,15 @@ pub async fn watch_endpoints(
                     _ => port.port,
                 };
 
-                let mut endpoints_by_nodename = HashMap::<String, Vec<String>>::new();
+                let mut endpoints_by_nodename = HashMap::<String, Vec<Ipv4Addr>>::new();
                 for address in addresses {
-                    let ip = address.ip.clone();
+                    let ip = match address.ip.clone().parse::<Ipv4Addr>() {
+                        Ok(ip) => ip,
+                        Err(e) => {
+                            error!("actor: invalid ipv4 string: {e}");
+                            continue;
+                        }
+                    };
                     let Some(nodename) = &address.node_name else {
                         warn!("actor: missing nodename for pod endpoint of {ip}");
                         continue;

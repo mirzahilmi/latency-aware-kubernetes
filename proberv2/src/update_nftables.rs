@@ -145,7 +145,7 @@ pub async fn update_nftables(
                         }
                         .into(),
                     ),
-                    Expression::String(endpoint.into()),
+                    Expression::String(endpoint.to_string().into()),
                 ));
                 starting = end + 1;
 

@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    net::IpAddr,
-};
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     actor::{Event, EwmaDatapoint, WorkerNode},
@@ -17,7 +14,7 @@ use tracing::{error, info, warn};
 pub async fn probe_cpu_usage(config: Config, tx: broadcast::Sender<Event>) -> anyhow::Result<()> {
     let mut ticker = interval(Duration::from_secs(15));
     let mut nodes = HashSet::<WorkerNode>::new();
-    let mut datapoint_by_nodename = HashMap::<IpAddr, f64>::new();
+    let mut datapoint_by_nodename = HashMap::<String, f64>::new();
 
     let mut rx = tx.subscribe();
     'main: loop {
@@ -77,13 +74,13 @@ pub async fn probe_cpu_usage(config: Config, tx: broadcast::Sender<Event>) -> an
                 0.2
             };
 
-            let datapoint = match datapoint_by_nodename.get(&worker.ip) {
+            let datapoint = match datapoint_by_nodename.get(&worker.name) {
                 Some(datapoint) => alpha * normalized_data + (1.0 - alpha) * *datapoint,
                 None => normalized_data,
             };
-            datapoint_by_nodename.insert(worker.ip, datapoint);
+            datapoint_by_nodename.insert(worker.name.clone(), datapoint);
             if let Err(e) = tx.send(Event::EwmaCalculated(
-                worker.clone(),
+                worker.name.clone(),
                 EwmaDatapoint::Cpu(datapoint),
             )) {
                 info!("actor: latency probe exiting: {e}");

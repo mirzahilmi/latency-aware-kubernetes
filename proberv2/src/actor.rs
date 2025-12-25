@@ -10,7 +10,12 @@ use nftables::{
     types::{NfChainPolicy, NfChainType, NfFamily, NfHook},
 };
 use serde_json::json;
-use std::{borrow::Cow, collections::HashMap, net::IpAddr, time::Duration};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    net::{IpAddr, Ipv4Addr},
+    time::Duration,
+};
 use tokio::{
     sync::broadcast::{Sender, error::TryRecvError},
     time,
@@ -31,7 +36,8 @@ pub struct Actor {
 #[derive(Clone)]
 pub enum Event {
     ServiceChanged(Service),
-    EwmaCalculated(WorkerNode, EwmaDatapoint),
+    // String == Node Name, probably should separate separate type?
+    EwmaCalculated(String, EwmaDatapoint),
     NodeJoined(WorkerNode),
 }
 
@@ -58,7 +64,7 @@ pub struct Service {
     pub name: String,
     pub nodeport: i32,
     pub targetport: i32,
-    pub endpoints_by_nodename: HashMap<String, Vec<String>>,
+    pub endpoints_by_nodename: HashMap<String, Vec<Ipv4Addr>>,
 }
 
 impl Actor {
@@ -109,11 +115,8 @@ impl Actor {
                     };
                 }
                 Event::EwmaCalculated(worker, dp) => {
-                    let Some(slot) = self.datapoint_by_nodename.get_mut(&worker.name) else {
-                        warn!(
-                            "actor: ghost node {}:{} got ewma calculation",
-                            worker.name, worker.ip
-                        );
+                    let Some(slot) = self.datapoint_by_nodename.get_mut(&worker) else {
+                        warn!("actor: ghost node {} got ewma calculation", worker);
                         continue;
                     };
                     let slot = slot.get_or_insert_with(ScorePair::default);
@@ -124,8 +127,8 @@ impl Actor {
                     }
 
                     info!(
-                        "actor: updated node {}:{} with latency {} cpu {}",
-                        worker.name, worker.ip, slot.latency, slot.cpu
+                        "actor: updated node {} with latency {} cpu {}",
+                        worker, slot.latency, slot.cpu
                     );
                 }
                 Event::NodeJoined(worker) => {
@@ -141,7 +144,7 @@ impl Actor {
         info!("actor: configuring base nftables ruleset");
         let client = Client::try_default().await?;
         let api: Api<Node> = Api::all(client);
-        let node = api.get(&self.config.node_name).await?;
+        let node = api.get(&self.config.kubernetes.node_name).await?;
         let Some(addrs) = node
             .status
             .as_ref()

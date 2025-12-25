@@ -5,12 +5,9 @@ use serde::Deserialize;
 pub struct Config {
     pub service_level_agreement: u128,
     pub exponential_decay_constant: f64,
-    #[serde(skip)]
-    pub node_name: String,
-    pub namespace: String,
-    pub app_port: String,
     pub prometheus: PrometheusConfig,
     pub nftables: NftablesConfig,
+    pub kubernetes: KubernetesConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -29,4 +26,14 @@ pub struct NftablesConfig {
     pub map_service_chain_by_nodeport: String,
     pub prefix_service_endpoint: String,
     pub probability_cap: u32,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct KubernetesConfig {
+    pub namespace: String,
+    #[serde(skip)]
+    pub node_name: String,
+    pub service: String,
+    pub target_port: u32,
 }

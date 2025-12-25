@@ -1,6 +1,11 @@
 {
     "serviceLevelAgreement": 400,
-    "namespace": "mirzaganteng",
+    "exponentialDecayConstant": 3.0,
+    "kubernetes": {
+        "namespace": "mirzaganteng",
+        "service": "mirzaganteng",
+        "targetPort": 8080
+    },
     "prometheus": {
         "url": "http://example.com:9090"
     },

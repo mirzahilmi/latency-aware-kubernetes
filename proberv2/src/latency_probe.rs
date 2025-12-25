@@ -1,45 +1,51 @@
-use std::{
-    collections::{HashMap, HashSet},
-    net::IpAddr,
-};
+use std::{collections::HashMap, net::Ipv4Addr};
 
 use crate::config::Config;
 
-use super::actor::{Event, EwmaDatapoint, WorkerNode};
+use super::actor::{Event, EwmaDatapoint};
 use tokio::{
     sync::broadcast,
     time::{Duration, Instant, interval},
 };
-use tracing::{debug, error, info};
+use tracing::{debug, info, warn};
 
 pub async fn probe_latency(config: Config, tx: broadcast::Sender<Event>) -> anyhow::Result<()> {
     let mut ticker = interval(Duration::from_secs(15));
-    let mut nodes = HashSet::<WorkerNode>::new();
-    let mut datapoint_by_nodename = HashMap::<IpAddr, f64>::new();
+    let mut endpoints_by_nodename = HashMap::<String, Vec<Ipv4Addr>>::new();
+    let mut datapoint_by_nodename = HashMap::<String, f64>::new();
 
     let mut rx = tx.subscribe();
     'main: loop {
         while let Ok(event) = rx.try_recv() {
-            if let Event::NodeJoined(node) = event {
-                nodes.insert(node);
-            }
+            if let Event::ServiceChanged(service) = event {
+                endpoints_by_nodename = service.endpoints_by_nodename;
+            };
         }
 
-        for worker in &nodes {
-            let now = Instant::now();
-            if let Err(e) = reqwest::get(format!("http://{}:{}", worker.ip, config.app_port)).await
-            {
-                error!("actor: failed to probe http request: {e}");
+        for (nodename, endpoints) in endpoints_by_nodename.iter() {
+            let mut response_time_ms: Option<u128> = None;
+            for endpoint in endpoints {
+                let now = Instant::now();
+                if (reqwest::get(format!(
+                    "http://{}:{}",
+                    endpoint, config.kubernetes.target_port
+                ))
+                .await)
+                    .is_ok()
+                {
+                    response_time_ms = Some(now.elapsed().as_millis());
+                    break;
+                };
+            }
+            let Some(elapsed_ms) = response_time_ms else {
+                warn!("actor: failed to probe latency for any endpoints available @ {nodename}");
                 continue;
             };
 
-            // scary
-            let normalized_data =
-                (now.elapsed().as_millis() / config.service_level_agreement) as f64;
+            let normalized_data = (elapsed_ms / config.service_level_agreement) as f64;
             debug!(
                 "actor: latency probe of {} takes {} ms",
-                worker.ip,
-                now.elapsed().as_millis()
+                nodename, elapsed_ms,
             );
 
             let alpha = if normalized_data > 1.0 {
@@ -54,20 +60,19 @@ pub async fn probe_latency(config: Config, tx: broadcast::Sender<Event>) -> anyh
                 0.2
             };
 
-            let datapoint = match datapoint_by_nodename.get(&worker.ip) {
+            let datapoint = match datapoint_by_nodename.get(nodename) {
                 Some(datapoint) => alpha * normalized_data + (1.0 - alpha) * *datapoint,
                 None => normalized_data,
             };
-            datapoint_by_nodename.insert(worker.ip, datapoint);
+            datapoint_by_nodename.insert(nodename.clone(), datapoint);
             if let Err(e) = tx.send(Event::EwmaCalculated(
-                worker.clone(),
+                nodename.clone(),
                 EwmaDatapoint::Latency(datapoint),
             )) {
                 info!("actor: latency probe exiting: {e}");
                 break 'main;
             };
         }
-
         ticker.tick().await;
     }
 

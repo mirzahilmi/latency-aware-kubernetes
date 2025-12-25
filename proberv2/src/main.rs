@@ -19,9 +19,9 @@ async fn main() -> anyhow::Result<()> {
     let mut config: Config = serde_json::from_str(&config)?;
 
     let node_name = env::var("NODENAME")?;
-    config.node_name = node_name;
+    config.kubernetes.node_name = node_name;
 
-    let (tx, rx) = tokio::sync::broadcast::channel(32);
+    let (tx, _rx) = tokio::sync::broadcast::channel(32);
     {
         let mut actor = Actor {
             config,
