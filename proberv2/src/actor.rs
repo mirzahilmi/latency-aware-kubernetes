@@ -14,12 +14,8 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     net::{IpAddr, Ipv4Addr},
-    time::Duration,
 };
-use tokio::{
-    sync::broadcast::{Sender, error::TryRecvError},
-    time,
-};
+use tokio::sync::broadcast::{Sender, error::RecvError};
 use tracing::{debug, error, info, warn};
 
 use crate::{
@@ -78,26 +74,11 @@ impl Actor {
         tokio::spawn(watch_endpoints(self.config.clone(), tx.clone()));
 
         let mut rx = tx.subscribe();
-        let mut ticker = time::interval(Duration::from_secs(15));
         'main: loop {
-            let event = match rx.try_recv() {
+            let event = match rx.recv().await {
                 Ok(event) => event,
-                Err(TryRecvError::Closed) => break 'main,
-                Err(_) => {
-                    ticker.tick().await;
-                    for service in self.service_by_nodeport.values() {
-                        if let Err(e) = update_nftables(
-                            self.config.clone(),
-                            service.clone(),
-                            self.datapoint_by_nodename.clone(),
-                        )
-                        .await
-                        {
-                            error!("actor: reacting to service endpoints update failed: {e}");
-                        };
-                    }
-                    continue 'main;
-                }
+                Err(RecvError::Closed) => break 'main,
+                _ => continue,
             };
 
             match event {
@@ -130,6 +111,18 @@ impl Actor {
                         "actor: updated node {} with latency {} cpu {}",
                         worker, slot.latency, slot.cpu
                     );
+
+                    for service in self.service_by_nodeport.values() {
+                        if let Err(e) = update_nftables(
+                            self.config.clone(),
+                            service.clone(),
+                            self.datapoint_by_nodename.clone(),
+                        )
+                        .await
+                        {
+                            error!("actor: reacting to service endpoints update failed: {e}");
+                        };
+                    }
                 }
                 Event::NodeJoined(worker) => {
                     self.datapoint_by_nodename
