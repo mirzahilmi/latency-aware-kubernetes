@@ -44,5 +44,4 @@ pub struct KubernetesConfig {
 pub struct ProbeConfig {
     pub latency_interval: u64,
     pub cpu_interval: u64,
-    pub nftables_update_interval: u64,
 }

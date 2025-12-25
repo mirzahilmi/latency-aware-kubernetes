@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, f64::consts::E};
+use std::{borrow::Cow, cmp, collections::HashMap, f64::consts::E};
 
 use nftables::{
     batch::Batch,
@@ -42,7 +42,7 @@ pub async fn update_nftables(
     );
 
     let mut total_endpoints = 0;
-    let mut total_datapoints = 0.0;
+    let mut total_score = 0.0;
 
     service
         .endpoints_by_nodename
@@ -59,10 +59,11 @@ pub async fn update_nftables(
             if datapoint.cpu == 0.0 {
                 return;
             }
-            let score = E.powf(-config.exponential_decay_constant * datapoint.latency)
-                * E.powf(-config.exponential_decay_constant * datapoint.cpu);
+            let cost = (0.7 * datapoint.latency) + (0.3 * datapoint.cpu);
+            let score = cost.max(0.1);
+
             total_endpoints += endpoints.len();
-            total_datapoints += score;
+            total_score += score;
         });
 
     if total_endpoints < 2 {
@@ -71,10 +72,10 @@ pub async fn update_nftables(
             service.name,
         );
         return Ok(());
-    } else if total_datapoints <= 0.0 {
+    } else if total_score <= 0.0 {
         warn!(
-            "actor: skipping service {} - total datapoints is {}",
-            service.name, total_datapoints
+            "actor: skipping service {} - total score is {}",
+            service.name, total_score
         );
         return Ok(());
     }
@@ -94,10 +95,10 @@ pub async fn update_nftables(
             else {
                 return;
             };
-            let score = E.powf(-config.exponential_decay_constant * datapoint.latency)
-                * E.powf(-config.exponential_decay_constant * datapoint.cpu);
+            let cost = (0.7 * datapoint.latency) + (0.3 * datapoint.cpu);
+            let score = cost.max(0.1);
 
-            let score_percentage = score / total_datapoints;
+            let score_percentage = score / total_score;
             score_by_nodename.insert(nodename.clone(), score_percentage * 100.0);
             let node_portion = (score_percentage * probability_cap as f64).round() as u32;
 
