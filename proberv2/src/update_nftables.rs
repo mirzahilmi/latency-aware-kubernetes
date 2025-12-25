@@ -154,7 +154,7 @@ pub async fn update_nftables(
                 }
             }
         });
-    info!("actor: node scores: {score_by_nodename:?}");
+    info!("actor: {chain} node scores: {score_by_nodename:?}");
 
     // CRITICAL: Check if we have any mappings
     if verdict_pairs.is_empty() {

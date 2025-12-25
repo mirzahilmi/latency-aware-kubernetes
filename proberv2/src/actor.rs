@@ -90,7 +90,7 @@ impl Actor {
                             error!("actor: reacting to service endpoints update failed: {e}");
                         };
                     }
-                    continue;
+                    continue 'main;
                 }
             };
 

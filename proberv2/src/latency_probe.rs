@@ -10,7 +10,7 @@ use tokio::{
     sync::broadcast,
     time::{Duration, Instant, interval},
 };
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 pub async fn probe_latency(config: Config, tx: broadcast::Sender<Event>) -> anyhow::Result<()> {
     let mut ticker = interval(Duration::from_secs(15));
@@ -36,12 +36,19 @@ pub async fn probe_latency(config: Config, tx: broadcast::Sender<Event>) -> anyh
             // scary
             let normalized_data =
                 (now.elapsed().as_millis() / config.service_level_agreement) as f64;
+            debug!(
+                "actor: latency probe of {} takes {} ms",
+                worker.ip,
+                now.elapsed().as_millis()
+            );
 
-            let alpha = if normalized_data < 0.2 {
+            let alpha = if normalized_data > 1.0 {
+                1.0
+            } else if normalized_data > 0.6 {
                 0.8
-            } else if normalized_data < 0.4 {
+            } else if normalized_data > 0.4 {
                 0.6
-            } else if normalized_data < 0.6 {
+            } else if normalized_data > 0.2 {
                 0.4
             } else {
                 0.2

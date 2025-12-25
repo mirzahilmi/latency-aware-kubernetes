@@ -67,11 +67,11 @@ pub async fn probe_cpu_usage(config: Config, tx: broadcast::Sender<Event>) -> an
             };
             let normalized_data = data.sample().value();
 
-            let alpha = if normalized_data < 0.2 {
+            let alpha = if normalized_data > 0.8 {
                 0.8
-            } else if normalized_data < 0.4 {
+            } else if normalized_data > 0.5 {
                 0.6
-            } else if normalized_data < 0.6 {
+            } else if normalized_data > 0.2 {
                 0.4
             } else {
                 0.2
