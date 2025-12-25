@@ -73,7 +73,7 @@ pub async fn probe_latency(config: Config, tx: broadcast::Sender<Event>) -> anyh
                 nodename, elapsed_ms,
             );
 
-            let alpha = 0.15;
+            let alpha = 0.1;
             let datapoint = match datapoint_by_nodename.get(&nodename) {
                 Some(datapoint) => alpha * normalized_data + (1.0 - alpha) * *datapoint,
                 None => normalized_data,

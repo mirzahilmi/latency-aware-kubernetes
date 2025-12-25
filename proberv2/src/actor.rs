@@ -14,8 +14,12 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     net::{IpAddr, Ipv4Addr},
+    time::Duration,
 };
-use tokio::sync::broadcast::{Sender, error::RecvError};
+use tokio::{
+    sync::broadcast::{Sender, error::RecvError},
+    time,
+};
 use tracing::{debug, error, info, warn};
 
 use crate::{
@@ -74,44 +78,12 @@ impl Actor {
         tokio::spawn(watch_endpoints(self.config.clone(), tx.clone()));
 
         let mut rx = tx.subscribe();
+        let mut ticker = time::interval(Duration::from_secs(
+            self.config.probe.nftables_update_interval,
+        ));
         'main: loop {
-            let event = match rx.recv().await {
-                Ok(event) => event,
-                Err(RecvError::Closed) => break 'main,
-                _ => continue,
-            };
-
-            match event {
-                Event::ServiceChanged(service) => {
-                    self.service_by_nodeport
-                        .insert(service.nodeport, service.clone());
-                    if let Err(e) = update_nftables(
-                        self.config.clone(),
-                        service,
-                        self.datapoint_by_nodename.clone(),
-                    )
-                    .await
-                    {
-                        error!("actor: reacting to service endpoints update failed: {e}");
-                    };
-                }
-                Event::EwmaCalculated(worker, dp) => {
-                    let Some(slot) = self.datapoint_by_nodename.get_mut(&worker) else {
-                        warn!("actor: ghost node {} got ewma calculation", worker);
-                        continue;
-                    };
-                    let slot = slot.get_or_insert_with(ScorePair::default);
-
-                    match dp {
-                        EwmaDatapoint::Latency(v) => slot.latency = v,
-                        EwmaDatapoint::Cpu(v) => slot.cpu = v,
-                    }
-
-                    info!(
-                        "actor: updated node {} with latency {} cpu {}",
-                        worker, slot.latency, slot.cpu
-                    );
-
+            tokio::select! {
+                _ = ticker.tick() => {
                     for service in self.service_by_nodeport.values() {
                         if let Err(e) = update_nftables(
                             self.config.clone(),
@@ -124,11 +96,45 @@ impl Actor {
                         };
                     }
                 }
-                Event::NodeJoined(worker) => {
-                    self.datapoint_by_nodename
-                        .entry(worker.name)
-                        .or_insert(None);
+                event =  rx.recv() => {
+                    let event = match event {
+                        Ok(event) => event,
+                        Err(RecvError::Closed) => break 'main,
+                        _ => continue,
+                    };
+                    self.react(event).await;
                 }
+            }
+        }
+    }
+
+    pub async fn react(&mut self, event: Event) {
+        match event {
+            Event::ServiceChanged(service) => {
+                self.service_by_nodeport
+                    .insert(service.nodeport, service.clone());
+            }
+            Event::EwmaCalculated(worker, dp) => {
+                let Some(slot) = self.datapoint_by_nodename.get_mut(&worker) else {
+                    warn!("actor: ghost node {} got ewma calculation", worker);
+                    return;
+                };
+                let slot = slot.get_or_insert_with(ScorePair::default);
+
+                match dp {
+                    EwmaDatapoint::Latency(v) => slot.latency = v,
+                    EwmaDatapoint::Cpu(v) => slot.cpu = v,
+                }
+
+                info!(
+                    "actor: updated node {} with latency {} cpu {}",
+                    worker, slot.latency, slot.cpu
+                );
+            }
+            Event::NodeJoined(worker) => {
+                self.datapoint_by_nodename
+                    .entry(worker.name)
+                    .or_insert(None);
             }
         }
     }
