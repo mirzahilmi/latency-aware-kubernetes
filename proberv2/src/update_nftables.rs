@@ -1,4 +1,4 @@
-use std::{borrow::Cow, cmp, collections::HashMap, f64::consts::E};
+use std::{borrow::Cow, collections::HashMap, f64::consts::E};
 
 use nftables::{
     batch::Batch,
@@ -60,7 +60,7 @@ pub async fn update_nftables(
                 return;
             }
             let cost = (0.7 * datapoint.latency) + (0.3 * datapoint.cpu);
-            let score = cost.max(0.1);
+            let score = E.powf(-config.exponential_decay_constant * cost);
 
             total_endpoints += endpoints.len();
             total_score += score;
@@ -74,7 +74,7 @@ pub async fn update_nftables(
         return Ok(());
     } else if total_score <= 0.0 {
         warn!(
-            "actor: skipping service {} - total score is {}",
+            "actor: skipping service {} - total datapoints is {}",
             service.name, total_score
         );
         return Ok(());
@@ -96,7 +96,7 @@ pub async fn update_nftables(
                 return;
             };
             let cost = (0.7 * datapoint.latency) + (0.3 * datapoint.cpu);
-            let score = cost.max(0.1);
+            let score = E.powf(-config.exponential_decay_constant * cost);
 
             let score_percentage = score / total_score;
             score_by_nodename.insert(nodename.clone(), score_percentage * 100.0);
