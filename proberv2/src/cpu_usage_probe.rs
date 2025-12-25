@@ -64,16 +64,7 @@ pub async fn probe_cpu_usage(config: Config, tx: broadcast::Sender<Event>) -> an
             };
             let normalized_data = data.sample().value();
 
-            let alpha = if normalized_data > 0.8 {
-                0.8
-            } else if normalized_data > 0.5 {
-                0.6
-            } else if normalized_data > 0.2 {
-                0.4
-            } else {
-                0.2
-            };
-
+            let alpha = 0.2;
             let datapoint = match datapoint_by_nodename.get(&worker.name) {
                 Some(datapoint) => alpha * normalized_data + (1.0 - alpha) * *datapoint,
                 None => normalized_data,
