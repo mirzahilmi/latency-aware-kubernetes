@@ -12,7 +12,7 @@ use tokio::{
 use tracing::{error, info, warn};
 
 pub async fn probe_cpu_usage(config: Config, tx: broadcast::Sender<Event>) -> anyhow::Result<()> {
-    let mut ticker = interval(Duration::from_secs(15));
+    let mut ticker = interval(Duration::from_secs(config.probe.cpu_interval));
     let mut nodes = HashSet::<WorkerNode>::new();
     let mut datapoint_by_nodename = HashMap::<String, f64>::new();
 

@@ -8,6 +8,7 @@ pub struct Config {
     pub prometheus: PrometheusConfig,
     pub nftables: NftablesConfig,
     pub kubernetes: KubernetesConfig,
+    pub probe: ProbeConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -36,4 +37,11 @@ pub struct KubernetesConfig {
     pub node_name: String,
     pub service: String,
     pub target_port: u32,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ProbeConfig {
+    pub latency_interval: u64,
+    pub cpu_interval: u64,
 }
