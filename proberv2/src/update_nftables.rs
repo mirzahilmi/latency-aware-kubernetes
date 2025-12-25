@@ -179,7 +179,16 @@ pub async fn update_nftables(
         ng_mod_value
     );
 
-    // Flush chain if it exists, otherwise create it
+    // try create service chain first, if already exist just error silently
+    let mut batch = Batch::new();
+    batch.add(NfListObject::Chain(Chain {
+        family: NfFamily::IP,
+        table: config.nftables.table.clone().into(),
+        name: chain.clone().into(),
+        ..Default::default()
+    }));
+    helper::apply_ruleset(&batch.to_nftables())?;
+
     let mut batch = Batch::new();
     batch.add_cmd(NfCmd::Flush(FlushObject::Chain(Chain {
         family: NfFamily::IP,
@@ -187,20 +196,6 @@ pub async fn update_nftables(
         name: chain.clone().into(),
         ..Default::default()
     })));
-
-    // If flush fails, chain doesn't exist - create it
-    if helper::apply_ruleset(&batch.to_nftables()).is_err() {
-        let mut batch = Batch::new();
-        batch.add(NfListObject::Chain(Chain {
-            family: NfFamily::IP,
-            table: config.nftables.table.clone().into(),
-            name: chain.clone().into(),
-            ..Default::default()
-        }));
-        helper::apply_ruleset(&batch.to_nftables())?;
-    }
-
-    let mut batch = Batch::new();
     batch.add(NfListObject::Rule(Rule {
         family: NfFamily::IP,
         table: config.nftables.table.clone().into(),
