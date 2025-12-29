@@ -59,7 +59,7 @@ pub async fn update_nftables(
             if datapoint.cpu == 0.0 {
                 return;
             }
-            let cost = (0.7 * datapoint.latency) + (0.3 * datapoint.cpu);
+            let cost = datapoint.latency + datapoint.cpu;
             let score = E.powf(-config.exponential_decay_constant * cost);
 
             total_endpoints += endpoints.len();
@@ -95,7 +95,7 @@ pub async fn update_nftables(
             else {
                 return;
             };
-            let cost = (0.7 * datapoint.latency) + (0.3 * datapoint.cpu);
+            let cost = datapoint.latency + datapoint.cpu;
             let score = E.powf(-config.exponential_decay_constant * cost);
 
             let score_percentage = score / total_score;
