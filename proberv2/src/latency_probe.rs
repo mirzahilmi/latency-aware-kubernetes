@@ -8,15 +8,26 @@ use tokio::{
     sync::broadcast,
     time::{Duration, Instant, interval},
 };
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
-pub async fn probe_latency(config: Config, tx: broadcast::Sender<Event>) -> anyhow::Result<()> {
+pub async fn probe_latency(
+    config: Config,
+    tx: broadcast::Sender<Event>,
+    token: CancellationToken,
+) -> anyhow::Result<()> {
     let mut ticker = interval(Duration::from_secs(config.probe.latency_interval));
     let mut endpoints_by_nodename = HashMap::<String, Vec<Ipv4Addr>>::new();
     let mut datapoint_by_nodename = HashMap::<String, f64>::new();
 
     let mut rx = tx.subscribe();
     'main: loop {
+        // i hope this works
+        if token.is_cancelled() {
+            info!("actor: exiting latency_probe task");
+            return Ok(());
+        }
+
         while let Ok(event) = rx.try_recv() {
             if let Event::ServiceChanged(service) = event {
                 endpoints_by_nodename = service.endpoints_by_nodename;

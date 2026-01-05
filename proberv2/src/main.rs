@@ -5,6 +5,7 @@ use tokio::{
     fs,
     signal::unix::{self, SignalKind},
 };
+use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 #[tokio::main]
@@ -21,25 +22,28 @@ async fn main() -> anyhow::Result<()> {
     let node_name = env::var("NODENAME")?;
     config.kubernetes.node_name = node_name;
 
-    let (tx, _rx) = tokio::sync::broadcast::channel(32);
-    {
-        let mut actor = Actor {
-            config,
-            datapoint_by_nodename: HashMap::new(),
-            service_by_nodeport: HashMap::new(),
-        };
-        actor.setup_nftables().await?;
+    let (tx, _) = tokio::sync::broadcast::channel(32);
+    let token = CancellationToken::new();
+    let child_token = token.clone();
 
-        tokio::spawn(async move { actor.dispatch(tx).await });
+    let mut actor = Actor {
+        config,
+        datapoint_by_nodename: HashMap::new(),
+        service_by_nodeport: HashMap::new(),
+    };
+    actor.setup_nftables().await?;
 
-        let mut sigint = unix::signal(SignalKind::interrupt())?;
-        let mut sigterm = unix::signal(SignalKind::terminate())?;
+    tokio::spawn(async move { actor.dispatch(tx, child_token).await });
 
-        tokio::select! {
-            _ = sigint.recv() => {},
-            _ = sigterm.recv() => {},
-        }
+    let mut sigint = unix::signal(SignalKind::interrupt())?;
+    let mut sigterm = unix::signal(SignalKind::terminate())?;
+
+    tokio::select! {
+        _ = sigint.recv() => {},
+        _ = sigterm.recv() => {},
     }
+    info!("main: received shutdown signal, terminating...");
+    token.cancel();
 
     Ok(())
 }

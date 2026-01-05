@@ -9,6 +9,7 @@ use kube::{
 };
 use std::net::IpAddr;
 use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 enum Control<E> {
@@ -16,7 +17,10 @@ enum Control<E> {
     Stop,
 }
 
-pub async fn watch_nodes(tx: broadcast::Sender<Event>) -> anyhow::Result<()> {
+pub async fn watch_nodes(
+    tx: broadcast::Sender<Event>,
+    token: CancellationToken,
+) -> anyhow::Result<()> {
     let client = Client::try_default().await?;
     let api: Api<Node> = Api::all(client);
     let matcher = ListParams::default()
@@ -58,7 +62,7 @@ pub async fn watch_nodes(tx: broadcast::Sender<Event>) -> anyhow::Result<()> {
     }
 
     // watch loop
-    let result = runtime::watcher(api, Config::default())
+    let handler = runtime::watcher(api, Config::default())
         .applied_objects()
         .default_backoff()
         .map_err(Control::Watcher)
@@ -90,12 +94,18 @@ pub async fn watch_nodes(tx: broadcast::Sender<Event>) -> anyhow::Result<()> {
 
                 Ok(())
             }
-        })
-        .await;
+        });
 
-    if let Err(Control::Watcher(e)) = result {
-        return Err(e.into());
+    tokio::select! {
+        _ = token.cancelled() => {
+            info!("actor: exiting node_watch task");
+            Ok(())
+        },
+        result = handler => {
+            if let Err(Control::Watcher(e)) = result {
+                return Err(e.into());
+            }
+            Ok(())
+        }
     }
-
-    Ok(())
 }

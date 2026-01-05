@@ -16,6 +16,7 @@ use std::{
     net::{IpAddr, Ipv4Addr},
 };
 use tokio::sync::broadcast::{Sender, error::RecvError};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::{
@@ -64,18 +65,36 @@ pub struct Service {
 }
 
 impl Actor {
-    pub async fn dispatch(&mut self, tx: Sender<Event>) {
+    pub async fn dispatch(&mut self, tx: Sender<Event>, token: CancellationToken) {
         info!("actor: starting processes");
 
-        tokio::spawn(watch_nodes(tx.clone()));
-        // probably shouldn't use clone here, at the time idk any better
-        tokio::spawn(probe_latency(self.config.clone(), tx.clone()));
-        tokio::spawn(probe_cpu_usage(self.config.clone(), tx.clone()));
-        tokio::spawn(watch_endpoints(self.config.clone(), tx.clone()));
+        tokio::spawn({
+            let token = token.clone();
+            watch_nodes(tx.clone(), token)
+        });
+        tokio::spawn({
+            let token = token.clone();
+            probe_latency(self.config.clone(), tx.clone(), token)
+        });
+        tokio::spawn({
+            let token = token.clone();
+            probe_cpu_usage(self.config.clone(), tx.clone(), token)
+        });
+        tokio::spawn({
+            let token = token.clone();
+            watch_endpoints(self.config.clone(), tx.clone(), token)
+        });
 
         let mut rx = tx.subscribe();
         'main: loop {
-            let event = match rx.recv().await {
+            let event = tokio::select! {
+                _ = token.cancelled() => {
+                    info!("actor: exiting main actor dispatch");
+                    break 'main
+                }
+                event = rx.recv() => event,
+            };
+            let event = match event {
                 Ok(event) => event,
                 Err(RecvError::Closed) => break 'main,
                 _ => continue,

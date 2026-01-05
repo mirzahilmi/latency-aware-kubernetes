@@ -1,5 +1,6 @@
 use kube::runtime;
 use std::{collections::HashMap, net::Ipv4Addr};
+use tokio_util::sync::CancellationToken;
 
 use futures::TryStreamExt;
 use k8s_openapi::{
@@ -26,13 +27,14 @@ enum Control<E> {
 pub async fn watch_endpoints(
     config: AppConfig,
     tx: broadcast::Sender<Event>,
+    token: CancellationToken,
 ) -> anyhow::Result<()> {
     let client = Client::try_default().await?;
     let endpoints_api: Api<Endpoints> =
         Api::namespaced(client.clone(), &config.kubernetes.namespace);
     let service_api: Api<KubernetesService> = Api::namespaced(client, &config.kubernetes.namespace);
 
-    let result = runtime::watcher(
+    let handler = runtime::watcher(
         endpoints_api,
         Config::default().fields(&format!("metadata.name={}", config.kubernetes.service)),
     )
@@ -124,12 +126,18 @@ pub async fn watch_endpoints(
 
                 Ok(())
             }
-        })
-        .await;
+        });
 
-    if let Err(Control::Watcher(e)) = result {
-        return Err(e.into());
+    tokio::select! {
+        _ = token.cancelled() => {
+            info!("actor: exiting endpoints_watch task");
+            Ok(())
+        },
+        result = handler => {
+            if let Err(Control::Watcher(e)) = result {
+                return Err(e.into());
+            }
+            Ok(())
+        }
     }
-
-    Ok(())
 }
