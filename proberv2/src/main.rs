@@ -8,6 +8,10 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
+#[cfg(target_env = "musl")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
