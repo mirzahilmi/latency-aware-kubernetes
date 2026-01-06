@@ -78,7 +78,8 @@ pub async fn probe_latency(
                 continue;
             };
 
-            let normalized_data = (elapsed_ms / config.service_level_agreement) as f64;
+            let ratio = (elapsed_ms / config.service_level_agreement) as f64;
+            let normalized_data = ratio / (1.0 + ratio);
             debug!(
                 "actor: latency probe of {} takes {} ms",
                 nodename, elapsed_ms,
