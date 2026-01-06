@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 
-DISTRIBUTIONS="1200,800,800,800"
+DISTRIBUTIONS="3200,400,400,400"
 SOLUTION="SOLUTION"
 
 mkdir -p dataset

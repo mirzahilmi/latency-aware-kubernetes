@@ -73,12 +73,12 @@ pub async fn probe_cpu_usage(
                 warn!("actor: empty promql result");
                 continue;
             };
-            let normalized_data = data.sample().value();
+            let cpu_usage = data.sample().value();
 
             let alpha = 0.2;
             let datapoint = match datapoint_by_nodename.get(&worker.name) {
-                Some(datapoint) => alpha * normalized_data + (1.0 - alpha) * *datapoint,
-                None => normalized_data,
+                Some(datapoint) => alpha * cpu_usage + (1.0 - alpha) * *datapoint,
+                None => cpu_usage,
             };
             datapoint_by_nodename.insert(worker.name.clone(), datapoint);
             if let Err(e) = tx.send(Event::EwmaCalculated(

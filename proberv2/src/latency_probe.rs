@@ -78,17 +78,17 @@ pub async fn probe_latency(
                 continue;
             };
 
-            let ratio = (elapsed_ms / config.service_level_agreement) as f64;
-            let normalized_data = ratio / (1.0 + ratio);
             debug!(
                 "actor: latency probe of {} takes {} ms",
                 nodename, elapsed_ms,
             );
 
-            let alpha = 0.4;
+            let alpha = 0.2;
+
+            let elapsed_ms = elapsed_ms as f64;
             let datapoint = match datapoint_by_nodename.get(&nodename) {
-                Some(datapoint) => alpha * normalized_data + (1.0 - alpha) * *datapoint,
-                None => normalized_data,
+                Some(datapoint) => alpha * elapsed_ms + (1.0 - alpha) * *datapoint,
+                None => elapsed_ms,
             };
             datapoint_by_nodename.insert(nodename.clone(), datapoint);
             if let Err(e) = tx.send(Event::EwmaCalculated(

@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, f64::consts::E};
+use std::{borrow::Cow, collections::HashMap};
 
 use nftables::{
     batch::Batch,
@@ -19,14 +19,10 @@ use crate::{
 };
 pub async fn update_nftables(
     config: Config,
-    service: Service,
+    mut service: Service,
     datapoint_by_nodename: HashMap<String, Option<ScorePair>>,
 ) -> anyhow::Result<()> {
-    info!("actor: starting to modify nftables for traffic routing");
-    debug!(
-        "actor: attempting to apply routing rulesets with args: {service:?}: {datapoint_by_nodename:?}"
-    );
-
+    // skip nft update if service only has LESS THAN 2 node
     if service.endpoints_by_nodename.len() < 2 {
         info!(
             "actor: skipping ruleset application for service {} that only has {} nodes distribution",
@@ -36,6 +32,11 @@ pub async fn update_nftables(
         return Ok(());
     }
 
+    info!("actor: starting to modify nftables for traffic routing");
+    debug!(
+        "actor: attempting to apply routing rulesets with args: {service:?}: {datapoint_by_nodename:?}"
+    );
+
     let chain = format!(
         "{}-{}",
         config.nftables.prefix_service_endpoint, service.name
@@ -44,24 +45,29 @@ pub async fn update_nftables(
     let mut total_endpoints = 0;
     let mut total_score = 0.0;
 
+    // filters out node with no datapoint and 0% cpu availability
+    service.endpoints_by_nodename.retain(|nodename, _| {
+        let Some(datapoint) = datapoint_by_nodename
+            .get(nodename)
+            .and_then(|datapoint| datapoint.as_ref())
+        else {
+            return false;
+        };
+        datapoint.cpu > 0.0
+    });
+
+    // count total endpoints and score
     service
         .endpoints_by_nodename
         .iter()
         .for_each(|(nodename, endpoints)| {
-            let Some(datapoint) = datapoint_by_nodename
+            let datapoint = datapoint_by_nodename
                 .get(nodename)
                 .and_then(|datapoint| datapoint.as_ref())
-            else {
-                warn!("actor: skipping nodename {nodename} that still does not have datapoint");
-                return;
-            };
-            // just skip if cpu is 100% busy
-            if datapoint.cpu == 0.0 {
-                return;
-            }
-            let cost = datapoint.latency + datapoint.cpu;
-            let score = E.powf(-config.exponential_decay_constant * cost);
+                // this should be safe right, above code already filters out nodename with no datapoint
+                .unwrap();
 
+            let score = (1.0 - datapoint.cpu) / datapoint.latency;
             total_endpoints += endpoints.len();
             total_score += score;
         });
@@ -70,12 +76,6 @@ pub async fn update_nftables(
         warn!(
             "actor: skipping distributed service {} with only {total_endpoints} endpoints",
             service.name,
-        );
-        return Ok(());
-    } else if total_score <= 0.0 {
-        warn!(
-            "actor: skipping service {} - total datapoints is {}",
-            service.name, total_score
         );
         return Ok(());
     }
@@ -89,16 +89,15 @@ pub async fn update_nftables(
         .endpoints_by_nodename
         .iter()
         .for_each(|(nodename, endpoints)| {
-            let Some(datapoint) = datapoint_by_nodename
+            let datapoint = datapoint_by_nodename
                 .get(nodename)
                 .and_then(|datapoint| datapoint.as_ref())
-            else {
-                return;
-            };
-            let cost = datapoint.latency + datapoint.cpu;
-            let score = E.powf(-config.exponential_decay_constant * cost);
+                // this should be safe right, above code already filters out nodename with no datapoint
+                .unwrap();
 
+            let score = (1.0 - datapoint.cpu) / datapoint.latency;
             let score_percentage = score / total_score;
+
             score_by_nodename.insert(nodename.clone(), score_percentage * 100.0);
             let node_portion = (score_percentage * probability_cap as f64).round() as u32;
 
@@ -157,7 +156,6 @@ pub async fn update_nftables(
         });
     info!("actor: {chain} node scores: {score_by_nodename:?}");
 
-    // CRITICAL: Check if we have any mappings
     if verdict_pairs.is_empty() {
         warn!(
             "actor: no verdict pairs generated for service {}, skipping",
@@ -166,7 +164,6 @@ pub async fn update_nftables(
         return Ok(());
     }
 
-    // CRITICAL: Validate ng_mod value
     let ng_mod_value = if starting > 0 {
         starting - 1
     } else {
