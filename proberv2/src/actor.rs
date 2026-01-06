@@ -14,8 +14,12 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     net::{IpAddr, Ipv4Addr},
+    time::Duration,
 };
-use tokio::sync::broadcast::{Sender, error::RecvError};
+use tokio::{
+    sync::broadcast::{self, error::RecvError},
+    time,
+};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
@@ -33,7 +37,7 @@ pub struct Actor {
 #[derive(Clone)]
 pub enum Event {
     ServiceChanged(Service),
-    // String == Node Name, probably should separate separate type?
+    // String == Node Name, probably should separate type?
     EwmaCalculated(String, EwmaDatapoint),
     NodeJoined(WorkerNode),
 }
@@ -65,8 +69,9 @@ pub struct Service {
 }
 
 impl Actor {
-    pub async fn dispatch(&mut self, tx: Sender<Event>, token: CancellationToken) {
+    pub async fn dispatch(&mut self, token: CancellationToken) {
         info!("actor: starting processes");
+        let (tx, mut rx) = broadcast::channel(32);
 
         tokio::spawn({
             let token = token.clone();
@@ -85,14 +90,28 @@ impl Actor {
             watch_endpoints(self.config.clone(), tx.clone(), token)
         });
 
-        let mut rx = tx.subscribe();
+        let mut ticker = time::interval(Duration::from_secs(self.config.probe.nft_update_interval));
         'main: loop {
             let event = tokio::select! {
+                event = rx.recv() => event,
                 _ = token.cancelled() => {
                     info!("actor: exiting main actor dispatch");
                     break 'main
+                },
+                _ = ticker.tick() => {
+                    for service in self.service_by_nodeport.values() {
+                        if let Err(e) = update_nftables(
+                            self.config.clone(),
+                            service.clone(),
+                            self.datapoint_by_nodename.clone(),
+                        )
+                        .await
+                        {
+                            error!("actor: reacting to service endpoints update failed: {e}");
+                        };
+                    }
+                    continue 'main
                 }
-                event = rx.recv() => event,
             };
             let event = match event {
                 Ok(event) => event,
@@ -130,18 +149,6 @@ impl Actor {
                         "actor: updated node {} with latency {} cpu {}",
                         worker, slot.latency, slot.cpu
                     );
-
-                    for service in self.service_by_nodeport.values() {
-                        if let Err(e) = update_nftables(
-                            self.config.clone(),
-                            service.clone(),
-                            self.datapoint_by_nodename.clone(),
-                        )
-                        .await
-                        {
-                            error!("actor: reacting to service endpoints update failed: {e}");
-                        };
-                    }
                 }
                 Event::NodeJoined(worker) => {
                     self.datapoint_by_nodename

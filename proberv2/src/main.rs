@@ -26,7 +26,6 @@ async fn main() -> anyhow::Result<()> {
     let node_name = env::var("NODENAME")?;
     config.kubernetes.node_name = node_name;
 
-    let (tx, _) = tokio::sync::broadcast::channel(32);
     let token = CancellationToken::new();
     let child_token = token.clone();
 
@@ -37,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
     };
     actor.setup_nftables().await?;
 
-    tokio::spawn(async move { actor.dispatch(tx, child_token).await });
+    tokio::spawn(async move { actor.dispatch(child_token).await });
 
     let mut sigint = unix::signal(SignalKind::interrupt())?;
     let mut sigterm = unix::signal(SignalKind::terminate())?;

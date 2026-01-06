@@ -22,10 +22,8 @@ FROM chef AS builder
 WORKDIR /app
 COPY --from=setup /target_platform /target_platform
 COPY --from=planner /app/recipe.json recipe.json
-# Build dependencies - this is the caching Docker layer!
 RUN cargo chef cook --release --recipe-path recipe.json --zigbuild \
   --target "$(cat /target_platform)"
-# Build application
 COPY . .
 RUN cargo zigbuild --release --bin proberv2 --target "$(cat /target_platform)"
 
