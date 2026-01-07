@@ -1,6 +1,5 @@
 {
-    "serviceLevelAgreement": 400,
-    "exponentialDecayConstant": 3.0,
+    "shutdownTimeout": 10,
     "kubernetes": {
         "namespace": "mirzaganteng",
         "service": "mirzaganteng",
@@ -16,5 +15,10 @@
         "setAllowedNodeIps": "iyadahgitudah",
         "mapServiceChainByNodeport": "gitudahnamanya",
         "prefixServiceEndpoint": "yowes-ikilo"
-    }
+    },
+    "probe": {
+        "latencyInterval": 10,
+        "cpuInterval": 10,
+        "nftUpdateInterval": 10
+    },
 }

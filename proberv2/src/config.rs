@@ -3,13 +3,11 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
-    pub service_level_agreement: u128,
-    pub exponential_decay_constant: f64,
+    pub shutdown_timeout: u32,
     pub prometheus: PrometheusConfig,
     pub nftables: NftablesConfig,
     pub kubernetes: KubernetesConfig,
     pub probe: ProbeConfig,
-    pub weight: WeightConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -46,11 +44,4 @@ pub struct ProbeConfig {
     pub latency_interval: u64,
     pub cpu_interval: u64,
     pub nft_update_interval: u64,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct WeightConfig {
-    pub response_time: f64,
-    pub cpu_usage: f64,
 }

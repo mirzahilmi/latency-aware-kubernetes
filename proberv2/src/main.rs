@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env, path::Path};
+use std::{collections::HashMap, env, path::Path, time::Duration};
 
 use proberv2::{actor::Actor, config::Config};
 use tokio::{
@@ -30,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
     let child_token = token.clone();
 
     let mut actor = Actor {
-        config,
+        config: config.clone(),
         datapoint_by_nodename: HashMap::new(),
         service_by_nodeport: HashMap::new(),
     };
@@ -47,6 +47,7 @@ async fn main() -> anyhow::Result<()> {
     }
     info!("main: received shutdown signal, terminating...");
     token.cancel();
+    tokio::time::sleep(Duration::from_secs(config.shutdown_timeout.into())).await;
 
     Ok(())
 }
