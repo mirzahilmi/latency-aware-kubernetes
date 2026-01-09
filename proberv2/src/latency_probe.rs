@@ -83,11 +83,12 @@ pub async fn probe_latency(
                 nodename, elapsed_ms,
             );
 
-            let alpha = 0.2;
-
             let elapsed_ms = elapsed_ms as f64;
             let datapoint = match datapoint_by_nodename.get(&nodename) {
-                Some(datapoint) => alpha * elapsed_ms + (1.0 - alpha) * *datapoint,
+                Some(datapoint) => {
+                    config.alpha.ewma_latency * elapsed_ms
+                        + (1.0 - config.alpha.ewma_latency) * *datapoint
+                }
                 None => elapsed_ms,
             };
             datapoint_by_nodename.insert(nodename.clone(), datapoint);

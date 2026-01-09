@@ -21,4 +21,8 @@
         "cpuInterval": 10,
         "nftUpdateInterval": 10
     },
+    "alpha": {
+        "ewmaLatency": 0.2,
+        "ewmaCpu": 0.3
+    }
 }

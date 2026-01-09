@@ -8,6 +8,7 @@ pub struct Config {
     pub nftables: NftablesConfig,
     pub kubernetes: KubernetesConfig,
     pub probe: ProbeConfig,
+    pub alpha: AlphaConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -44,4 +45,11 @@ pub struct ProbeConfig {
     pub latency_interval: u64,
     pub cpu_interval: u64,
     pub nft_update_interval: u64,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AlphaConfig {
+    pub ewma_latency: f64,
+    pub ewma_cpu: f64,
 }
