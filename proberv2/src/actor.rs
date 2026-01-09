@@ -3,10 +3,10 @@ use k8s_openapi::api::core::v1::Node;
 use kube::{Api, Client, ResourceExt};
 use nftables::{
     batch::Batch,
-    expr::Expression as NftExpression,
+    expr::{Expression as NftExpression, NamedExpression},
     helper,
     schema::{Chain, NfListObject, Rule, Set, SetType, SetTypeValue, Table},
-    stmt::{JumpTarget, Statement},
+    stmt::{JumpTarget, Match, Operator, Statement},
     types::{NfChainPolicy, NfChainType, NfFamily, NfHook},
 };
 use serde_json::json;
@@ -279,6 +279,40 @@ impl Actor {
             serde_json::to_string(&ruleset)?
         );
         helper::apply_ruleset(&ruleset)?;
+
+        let mut batch = Batch::new();
+        batch.add(NfListObject::Rule(Rule {
+            family: NfFamily::IP,
+            table: self.config.nftables.table.clone().into(),
+            chain: self.config.nftables.chain_prerouting.clone().into(),
+            expr: Cow::Owned(vec![
+                // Match connection state
+                Statement::Match(Match {
+                    left: NftExpression::Named(NamedExpression::CT(nftables::expr::CT {
+                        key: "state".into(),
+                        ..Default::default()
+                    })),
+                    right: NftExpression::List(vec![
+                        NftExpression::String("established".into()),
+                        NftExpression::String("related".into()),
+                    ]),
+                    op: Operator::IN,
+                }),
+                Statement::Accept(None),
+            ]),
+            comment: Some(
+                "Accept established/related connections to preserve existing sessions".into(),
+            ),
+            ..Default::default()
+        }));
+
+        let ruleset = batch.to_nftables();
+        debug!(
+            "actor: applying conntrack rule: {}",
+            serde_json::to_string(&ruleset)?
+        );
+        helper::apply_ruleset(&ruleset)?;
+
         let mut batch = Batch::new();
 
         batch.add(NfListObject::Rule(Rule {
