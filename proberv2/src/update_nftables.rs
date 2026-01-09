@@ -53,7 +53,7 @@ pub async fn update_nftables(
         else {
             return false;
         };
-        datapoint.cpu > 0.0
+        datapoint.cpu > 0.0 && datapoint.cpu < 0.95
     });
 
     // count total endpoints and score
