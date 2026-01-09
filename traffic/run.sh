@@ -25,6 +25,8 @@ do
       ./generation_script.js
 
   I=$((I+1))
+
+  sleep $((1*60))
 done
 IFS="$OLDIFS"
 
