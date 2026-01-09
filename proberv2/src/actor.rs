@@ -134,20 +134,20 @@ impl Actor {
                     };
                 }
                 Event::EwmaCalculated(worker, dp) => {
-                    let Some(slot) = self.datapoint_by_nodename.get_mut(&worker) else {
+                    let Some(score) = self.datapoint_by_nodename.get_mut(&worker) else {
                         warn!("actor: ghost node {} got ewma calculation", worker);
                         continue;
                     };
-                    let slot = slot.get_or_insert_with(ScorePair::default);
+                    let score = score.get_or_insert_with(ScorePair::default);
 
                     match dp {
-                        EwmaDatapoint::Latency(v) => slot.latency = v,
-                        EwmaDatapoint::Cpu(v) => slot.cpu = v,
+                        EwmaDatapoint::Latency(v) => score.latency = v,
+                        EwmaDatapoint::Cpu(v) => score.cpu = v,
                     }
 
                     info!(
                         "actor: updated node {} with latency {} cpu {}",
-                        worker, slot.latency, slot.cpu
+                        worker, score.latency, score.cpu
                     );
                 }
                 Event::NodeJoined(worker) => {
