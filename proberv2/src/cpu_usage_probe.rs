@@ -75,15 +75,7 @@ pub async fn probe_cpu_usage(
             };
             let cpu_usage = data.sample().value();
 
-            let alpha = if cpu_usage > 0.8 {
-                0.8
-            } else if cpu_usage > 0.5 {
-                0.6
-            } else if cpu_usage > 0.2 {
-                0.4
-            } else {
-                0.2
-            };
+            let alpha = config.alpha.ewma_cpu;
 
             let datapoint = match datapoint_by_nodename.get(&worker.name) {
                 Some(datapoint) => alpha * cpu_usage + (1.0 - alpha) * *datapoint,
