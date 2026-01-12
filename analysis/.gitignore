@@ -1,0 +1,10 @@
+*
+
+!/.gitignore
+!/*.ipynb
+!/*.py
+!/flake.*
+!/*.md
+!/.python-version
+!/pyproject.toml
+!/uv.lock
