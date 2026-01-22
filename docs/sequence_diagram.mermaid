@@ -1,0 +1,27 @@
+sequenceDiagram
+    participant K8s as Kubernetes API
+    participant Watcher as Node/Endpoint Watcher
+    participant Actorr as Prober Actorr (Orchestrator)
+    participant Probe as CPU & Latency Probers
+    participant NF as Nftables (Linux Kernel)
+
+    Note over Actorr, NF: Initialization Phase
+    Actorr->>NF: Setup Initial Ruleset (Table, Chain, Maps)
+    Actorr->>K8s: Subscribe to Node & Endpoint Events
+
+    Note over Watcher, Actorr: Topology Monitoring Cycle
+    K8s-->>Watcher: Event: NodeJoined / ServiceChanged
+    Watcher->>Actorr: Send New Topology Data
+    Actorr->>Actorr: Update Internal State & IP Mapping
+
+    Note over Probe, Actorr: Metric Collection & Processing Cycle
+    loop Periodic Interval (CPU & Latency)
+        Probe->>Probe: Fetch Raw Metrics (Prometheus/HTTP)
+        Probe->>Probe: Calculate EWMA Prediction (Smoothing)
+        Probe->>Actorr: Send EwmaCalculated (Score)
+    end
+
+    Note over Actorr, NF: Policy Enforcement Cycle
+    Actorr->>Actorr: Calculate Total Score & Probability Weights
+    Actorr->>NF: update_nftables (DNAT Range Mapping)
+    Note right of NF: Packets are routed based on<br/>new probability weights
