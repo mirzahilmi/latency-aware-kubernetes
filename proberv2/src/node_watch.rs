@@ -17,32 +17,21 @@ enum Control<E> {
     Stop,
 }
 
-pub async fn watch_nodes(
-    tx: broadcast::Sender<Event>,
-    token: CancellationToken,
-) -> anyhow::Result<()> {
+pub async fn watch_nodes(tx: broadcast::Sender<Event>, token: CancellationToken) -> anyhow::Result<()> {
     let client = Client::try_default().await?;
     let api: Api<Node> = Api::all(client);
-    let matcher = ListParams::default()
-        .labels_from(
-            &Expression::DoesNotExist("node-role.kubernetes.io/control-plane".to_string()).into(),
-        )
-        .labels_from(
-            &Expression::Equal(
-                "node-role.kubernetes.io/worker".to_string(),
-                "true".to_string(),
-            )
-            .into(),
-        );
 
-    // initial discovery
+    // menerapkan filter query untuk api list node agar hanya menampilkan worker node
+    let matcher = ListParams::default()
+        .labels_from(&Expression::DoesNotExist("node-role.kubernetes.io/control-plane".to_string()).into())
+        .labels_from(&Expression::Equal("node-role.kubernetes.io/worker".to_string(), "true".to_string()).into());
+
+    // inisialisasi pencarian worker node pada tahap awal ketika program baru dijalankan,
+    // hasil query akan dimasukkan kedalam channel sebagai event NodeJoined untuk dikonsumsi
+    // proses lain
     let nodes = api.list(&matcher).await?;
     for node in nodes {
-        let Some(addrs) = node
-            .status
-            .as_ref()
-            .and_then(|status| status.addresses.as_ref())
-        else {
+        let Some(addrs) = node.status.as_ref().and_then(|status| status.addresses.as_ref()) else {
             continue;
         };
         let Some(a) = addrs.iter().find(|x| x.type_ == "InternalIP") else {
@@ -54,14 +43,11 @@ pub async fn watch_nodes(
             continue;
         };
 
-        tx.send(Event::NodeJoined(WorkerNode {
-            name: node.name_any(),
-            ip,
-        }))
-        .ok();
+        // mengirim event NodeJoined dengan informasi nama serta ip node
+        tx.send(Event::NodeJoined(WorkerNode { name: node.name_any(), ip })).ok();
     }
 
-    // watch loop
+    // berlangganan perubahan node untuk menyesuaikan dengan anggota worker node secara real-time
     let handler = runtime::watcher(api, Config::default())
         .applied_objects()
         .default_backoff()
@@ -84,11 +70,11 @@ pub async fn watch_nodes(
                     return Ok(());
                 };
 
-                if let Err(e) = tx.send(Event::NodeJoined(WorkerNode {
-                    name: node.name_any(),
-                    ip,
-                })) {
+                // mengirim event NodeJoined dengan informasi nama serta ip node
+                if let Err(e) = tx.send(Event::NodeJoined(WorkerNode { name: node.name_any(), ip })) {
                     info!("actor: stopping node watcher: {e}");
+                    // memberhentikan langganan ketika gagal mengirim event NodeJoined pada channel
+                    // yang berarti channel telah ditutup karena dalam proses program shutdown
                     return Err(Control::Stop);
                 }
 
@@ -96,6 +82,8 @@ pub async fn watch_nodes(
             }
         });
 
+    // menunggu sinyal secara blocking diantara sinyal program shutdown atau
+    // langganan perubahan node berhenti untuk memberhentikan fungsi
     tokio::select! {
         _ = token.cancelled() => {
             info!("actor: exiting node_watch task");

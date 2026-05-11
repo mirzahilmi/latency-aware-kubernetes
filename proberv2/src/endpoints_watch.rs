@@ -34,10 +34,8 @@ pub async fn watch_endpoints(
         Api::namespaced(client.clone(), &config.kubernetes.namespace);
     let service_api: Api<KubernetesService> = Api::namespaced(client, &config.kubernetes.namespace);
 
-    let handler = runtime::watcher(
-        endpoints_api,
-        Config::default().fields(&format!("metadata.name={}", config.kubernetes.service)),
-    )
+    // berlangganan perubahan endpoint aplikasi untuk menyesuaikan ip pod secara real-time
+    let handler = runtime::watcher(endpoints_api, Config::default().fields(&format!("metadata.name={}", config.kubernetes.service)))
         .applied_objects()
         .default_backoff()
         .map_err(Control::Watcher)
@@ -45,12 +43,13 @@ pub async fn watch_endpoints(
             let tx = tx.clone();
             let service_api = service_api.clone();
             async move {
+                // mengambil nama Service dari Endpoints
                 let servicename = endpoints.name_any();
                 info!("actor: endpoints changes occured for {servicename} service");
-                let Some(EndpointSubset {
-                    addresses: Some(addresses),
-                    ..
-                }) = endpoints
+
+                // mengambil property addresses dari Endpoints yang merupakan 
+                // sekumpulan alamat IP dari pod aplikasi
+                let Some(EndpointSubset { addresses: Some(addresses), .. }) = endpoints
                     .subsets
                     .as_ref()
                     .and_then(|subsets| subsets.first())
@@ -59,34 +58,40 @@ pub async fn watch_endpoints(
                     return Ok(());
                 };
 
+                // melakukan query untuk mendapatkan Service
+                // berdasarkan nama Service yang diperoleh dari Endpoints
                 let service = match service_api.get(&servicename).await {
                     Ok(service) => service,
                     Err(e) => {
-                        error!(
-                            "actor: failed to get endpoints service object of {servicename}: {e}"
-                        );
+                        error!("actor: failed to get endpoints service object of {servicename}: {e}");
                         return Ok(());
                     }
                 };
+
+                // mengambil port pertama dari property ports yang terdafar pada Service
                 let Some(port) = service.spec.as_ref()
                     .and_then(|spec| spec.ports.as_ref())
-                    .and_then(|ports| ports.first())
-                    else {
-                    warn!("actor: cannot find any ports for service {servicename}");
-                    return Ok(());
-                };
+                    .and_then(|ports| ports.first()) else {
+                        warn!("actor: cannot find any ports for service {servicename}");
+                        return Ok(());
+                    };
 
+                // mengambil port NodePort
                 let Some(nodeport) = port.node_port else {
                     warn!("actor: cannot find any ports for service {servicename}");
                     return Ok(());
                 };
 
+                // mengambil target port yang dituju dari port NodePort
                 let targetport = match port.target_port {
                     Some(IntOrString::Int(port)) => port,
                     _ => port.port,
                 };
 
+                // inisialisasi map untuk pemetaan/grouping endpoints berdasarkan node
                 let mut endpoints_by_nodename = HashMap::<String, Vec<Ipv4Addr>>::new();
+
+                // melakukan pemetaan/grouping endpoints berdasarkan node
                 for address in addresses {
                     let ip = match address.ip.clone().parse::<Ipv4Addr>() {
                         Ok(ip) => ip,
@@ -108,19 +113,20 @@ pub async fn watch_endpoints(
                 }
 
                 info!("actor: captured service {servicename} endpoints changes: {endpoints_by_nodename:?}");
+
+                // lewati jika Endpoints hanya terdaftar pada 1 node
                 if endpoints_by_nodename.len() == 1 {
                     info!("actor: skipping undistributed service {servicename} endpoints containing only 1 node");
                     return Ok(());
                 }
 
-                let service = Service {
-                    name: servicename,
-                    nodeport,
-                    targetport,
-                    endpoints_by_nodename,
-                };
+                // mengirim informasi penuh terkait sebuah Service (nama, NodePort, port target, kelompok endpoints berdasarkan node)
+                // sebagai event ServiceChanged melalui channel untuk dikonsumsi proses lain
+                let service = Service { name: servicename, nodeport, targetport, endpoints_by_nodename };
                 if let Err(e) = tx.send(Event::ServiceChanged(service)) {
                     info!("actor: latency probe exiting: {e}");
+                    // memberhentikan langganan ketika gagal mengirim event NodeJoined pada channel
+                    // yang berarti channel telah ditutup karena dalam proses program shutdown
                     return Err(Control::Stop);
                 };
 
@@ -128,6 +134,8 @@ pub async fn watch_endpoints(
             }
         });
 
+    // menunggu sinyal secara blocking diantara sinyal program shutdown atau
+    // langganan perubahan node berhenti untuk memberhentikan fungsi
     tokio::select! {
         _ = token.cancelled() => {
             info!("actor: exiting endpoints_watch task");

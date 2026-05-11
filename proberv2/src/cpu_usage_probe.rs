@@ -23,21 +23,22 @@ pub async fn probe_cpu_usage(
 
     let mut rx = tx.subscribe();
     'main: loop {
-        // i hope this works
+        // hentikan main loop ketika program shutdown
         if token.is_cancelled() {
             info!("actor: exiting probe_cpu_usage task");
             return Ok(());
         }
 
+        // mencoba membaca event penambahan Node baru dari channel,
+        // jika tidak ada lanjut ke baris selanjutnya
         while let Ok(event) = rx.try_recv() {
-            // should handle node removal
             if let Event::NodeJoined(node) = event {
                 nodes.insert(node);
             }
         }
 
-        // should be better off query once then iterate on the result
         for worker in &nodes {
+            // membuat client Prometheus
             let client = match Client::try_from(config.prometheus.url.clone()) {
                 Ok(client) => client,
                 Err(e) => {
@@ -46,12 +47,14 @@ pub async fn probe_cpu_usage(
                 }
             };
 
+            // membuat query PromQL untuk membaca persentase pemakaian CPU pada worker node
             let query = format!(
                 // thanks to https://stackoverflow.com/a/66263640
                 r#"(1 - avg(irate(node_cpu_seconds_total{{mode="idle",instance="{}:9100"}}[5m])) by (instance))"#,
                 worker.ip,
             );
 
+            // mengeksekusi query untuk membaca persentase pemakaian CPU dari worker node
             let response = match client.query(query).get().await {
                 Ok(response) => response,
                 Err(e) => {
@@ -75,13 +78,22 @@ pub async fn probe_cpu_usage(
             };
             let cpu_usage = data.sample().value();
 
+            // membaca alpha untuk perhitungan EWMA CPU
             let alpha = config.alpha.ewma_cpu;
 
             let datapoint = match datapoint_by_nodename.get(&worker.name) {
+                // kalkulasi skor EWMA ketika terdapat skor pada titik sebelumnya
                 Some(datapoint) => alpha * cpu_usage + (1.0 - alpha) * *datapoint,
+                // gunakan persentase pengunaan CPU mentah sebagai skor EWMA
+                // ketika tidak ada skor pada titik penghitungan sebelumnya
                 None => cpu_usage,
             };
+
+            // menyimpan nilai skor EWMA per node untuk digunakan pada perhitungan skor selanjutnya
             datapoint_by_nodename.insert(worker.name.clone(), datapoint);
+
+            // mengirim hasil skor EWMA untuk metrik penggunaan CPU untuk
+            // setiap node sebagai event EwmaCalculated melalui channel
             if let Err(e) = tx.send(Event::EwmaCalculated(
                 worker.name.clone(),
                 EwmaDatapoint::Cpu(datapoint),
@@ -91,6 +103,7 @@ pub async fn probe_cpu_usage(
             };
         }
 
+        // memberhentikan eksekusi loop dalam kurun waktu yang ditentukan
         ticker.tick().await;
     }
 
