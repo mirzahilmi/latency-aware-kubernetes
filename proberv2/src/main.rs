@@ -1,6 +1,6 @@
 use std::{collections::HashMap, env, path::Path, time::Duration};
 
-use proberv2::{actor::Actor, config::Config};
+use proberv2::{actor::Actor, config::Config, setup_nftables::setup_nftables};
 use tokio::{
     fs,
     signal::unix::{self, SignalKind},
@@ -34,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
         datapoint_by_nodename: HashMap::new(),
         service_by_nodeport: HashMap::new(),
     };
-    actor.setup_nftables().await?;
+    setup_nftables(&config).await?;
 
     tokio::spawn(async move { actor.dispatch(child_token).await });
 
