@@ -179,3 +179,5 @@ Influx-secret.yaml
 
 *Secret.yaml
 Secret*.yaml
+
+*.drawio.bkp
