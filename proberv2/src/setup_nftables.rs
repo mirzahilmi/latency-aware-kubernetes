@@ -151,8 +151,8 @@ pub async fn setup_nftables(config: &Config) -> anyhow::Result<()> {
     );
     helper::apply_ruleset(&ruleset)?;
 
-    // menambahkan aturan pada chain (prerouting) untuk menaruh prioritas chain (prerouting)
-    // tepat sebelum chain dari kubernetes
+    // menambahkan aturan pada chain (prerouting) untuk
+    // melanjutkan pemrosesan paket kepada chain (services)
     let mut batch = Batch::new();
     batch.add(NfListObject::Rule(Rule {
         family: NfFamily::IP,
