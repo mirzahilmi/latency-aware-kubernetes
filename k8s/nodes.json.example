@@ -1,0 +1,26 @@
+[
+  {
+    "hostname": "ubuntu-22",
+    "ip": "192.168.1.1",
+    "netinterface": "eth0",
+    "latency": "20ms"
+  },
+  {
+    "hostname": "ubuntu-22",
+    "ip": "192.168.1.1",
+    "netinterface": "eth0",
+    "latency": "20ms"
+  },
+  {
+    "hostname": "ubuntu-22",
+    "ip": "192.168.1.1",
+    "netinterface": "eth0",
+    "latency": "20ms"
+  },
+  {
+    "hostname": "ubuntu-22",
+    "ip": "192.168.1.1",
+    "netinterface": "eth0",
+    "latency": "20ms"
+  }
+]

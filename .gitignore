@@ -181,3 +181,5 @@ Influx-secret.yaml
 Secret*.yaml
 
 *.drawio.bkp
+.claude
+nodes.json
