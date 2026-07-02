@@ -1,11 +1,12 @@
 #!/usr/bin/env sh
 
-if [ -z "$1" ]; then
-    echo "Error: Missing required argument: environment" >&2
+if [ -z "$1" ] || [ -z "$2" ]; then
+    echo "Usage: $0 <environment> <distributions>" >&2
+    echo "Example: $0 prod 800,800,800,800" >&2
     exit 1
 fi
 
-DISTRIBUTIONS="3200,400,400,400"
+DISTRIBUTIONS="$2"
 SOLUTION="SOLUTION"
 
 mkdir -p dataset
