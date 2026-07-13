@@ -183,3 +183,8 @@ Secret*.yaml
 *.drawio.bkp
 .claude
 nodes.json
+
+# analysis/
+analysis/.venv
+analysis/data
+analysis/visuals
