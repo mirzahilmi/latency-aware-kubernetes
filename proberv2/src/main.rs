@@ -1,12 +1,13 @@
 use std::{collections::HashMap, env, path::Path, time::Duration};
 
-use proberv2::{actor::Actor, config::Config, setup_nftables::setup_nftables};
+use axum::{Router, routing::get};
+use proberv2::{actor::Actor, config::Config, metrics, setup_nftables::setup_nftables};
 use tokio::{
     fs,
     signal::unix::{self, SignalKind},
 };
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{error, info};
 
 #[cfg(target_env = "musl")]
 #[global_allocator]
@@ -26,8 +27,36 @@ async fn main() -> anyhow::Result<()> {
     let node_name = env::var("NODENAME")?;
     config.kubernetes.node_name = node_name;
 
+    // inisialisasi metrics registry
+    metrics::init();
+
     let token = CancellationToken::new();
     let child_token = token.clone();
+
+    // menjalankan HTTP server untuk endpoint /metrics Prometheus
+    if config.metrics.enabled {
+        let metrics_token = token.clone();
+        let listen_addr = config.metrics.listen_addr.clone();
+        tokio::spawn(async move {
+            let app = Router::new()
+                .route("/metrics", get(|| async { metrics::gather() }))
+                .route("/healthz", get(|| async { "OK" }));
+
+            let listener = match tokio::net::TcpListener::bind(&listen_addr).await {
+                Ok(l) => l,
+                Err(e) => {
+                    error!("metrics: gagal bind ke {listen_addr}: {e}");
+                    return;
+                }
+            };
+            info!("metrics: server listening on {listen_addr}");
+
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async move { metrics_token.cancelled().await })
+                .await
+                .unwrap_or_else(|e| error!("metrics: server error: {e}"));
+        });
+    }
 
     let mut actor = Actor {
         config: config.clone(),

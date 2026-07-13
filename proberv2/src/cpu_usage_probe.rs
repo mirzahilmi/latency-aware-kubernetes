@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     actor::{Event, EwmaDatapoint, WorkerNode},
     config::Config,
+    metrics,
 };
 use prometheus_http_query::Client;
 use tokio::{
@@ -78,6 +79,9 @@ pub async fn probe_cpu_usage(
             };
             let cpu_usage = data.sample().value();
 
+            // menulis metrik CPU mentah (pre-EWMA) ke Prometheus
+            metrics::set_raw_cpu_usage(&worker.name, cpu_usage);
+
             // membaca alpha untuk perhitungan EWMA CPU
             let alpha = config.alpha.ewma_cpu;
 
@@ -91,6 +95,9 @@ pub async fn probe_cpu_usage(
 
             // menyimpan nilai skor EWMA per node untuk digunakan pada perhitungan skor selanjutnya
             datapoint_by_nodename.insert(worker.name.clone(), datapoint);
+
+            // menulis metrik EWMA CPU ke Prometheus
+            metrics::set_ewma_cpu(&worker.name, datapoint);
 
             // mengirim hasil skor EWMA untuk metrik penggunaan CPU untuk
             // setiap node sebagai event EwmaCalculated melalui channel

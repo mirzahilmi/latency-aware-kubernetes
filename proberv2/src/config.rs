@@ -9,6 +9,8 @@ pub struct Config {
     pub kubernetes: KubernetesConfig,
     pub probe: ProbeConfig,
     pub alpha: AlphaConfig,
+    #[serde(default)]
+    pub metrics: MetricsConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -52,4 +54,30 @@ pub struct ProbeConfig {
 pub struct AlphaConfig {
     pub ewma_latency: f64,
     pub ewma_cpu: f64,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MetricsConfig {
+    #[serde(default = "default_listen_addr")]
+    pub listen_addr: String,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+}
+
+fn default_listen_addr() -> String {
+    "0.0.0.0:9101".to_string()
+}
+
+fn default_enabled() -> bool {
+    true
+}
+
+impl Default for MetricsConfig {
+    fn default() -> Self {
+        Self {
+            listen_addr: default_listen_addr(),
+            enabled: default_enabled(),
+        }
+    }
 }

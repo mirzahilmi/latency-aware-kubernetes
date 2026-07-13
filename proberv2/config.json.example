@@ -24,5 +24,9 @@
     "alpha": {
         "ewmaLatency": 0.2,
         "ewmaCpu": 0.3
+    },
+    "metrics": {
+        "listenAddr": "0.0.0.0:9101",
+        "enabled": true
     }
 }

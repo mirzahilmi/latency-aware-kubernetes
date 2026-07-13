@@ -1,6 +1,7 @@
 use std::{collections::HashMap, net::Ipv4Addr};
 
 use crate::config::Config;
+use crate::metrics;
 
 use super::actor::{Event, EwmaDatapoint};
 use tokio::task;
@@ -92,6 +93,10 @@ pub async fn probe_latency(
             );
 
             let elapsed_ms = elapsed_ms as f64;
+
+            // menulis metrik latency mentah (pre-EWMA) ke Prometheus
+            metrics::set_raw_latency_ms(&nodename, elapsed_ms);
+
             let datapoint = match datapoint_by_nodename.get(&nodename) {
                 // kalkulasi skor EWMA ketika terdapat skor pada titik sebelumnya
                 Some(datapoint) => {
@@ -105,6 +110,9 @@ pub async fn probe_latency(
 
             // menyimpan nilai skor EWMA per node untuk digunakan pada perhitungan skor selanjutnya
             datapoint_by_nodename.insert(nodename.clone(), datapoint);
+
+            // menulis metrik EWMA latency ke Prometheus
+            metrics::set_ewma_latency(&nodename, datapoint);
 
             // mengirim hasil skor EWMA untuk metrik waktu respon untuk
             // setiap node sebagai event EwmaCalculated melalui channel

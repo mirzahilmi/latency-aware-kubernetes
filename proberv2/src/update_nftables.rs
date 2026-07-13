@@ -16,6 +16,7 @@ use tracing::{debug, info, warn};
 use crate::{
     actor::{ScorePair, Service},
     config::Config,
+    metrics,
 };
 pub async fn update_nftables(
     config: Config,
@@ -44,6 +45,9 @@ pub async fn update_nftables(
 
     let mut total_endpoints = 0;
     let mut total_score = 0.0;
+
+    // simpan daftar semua node sebelum filtering untuk keperluan metrik eligibility
+    let all_nodes: Vec<String> = service.endpoints_by_nodename.keys().cloned().collect();
 
     // filters out node with no datapoint and 0% cpu availability
     service.endpoints_by_nodename.retain(|nodename, _| {
@@ -85,6 +89,19 @@ pub async fn update_nftables(
     let probability_cap = config.nftables.probability_cap;
     let mut score_by_nodename = HashMap::new();
 
+    // menulis probability_cap ke metrik Prometheus
+    metrics::set_probability_cap(&service.name, probability_cap);
+
+    // set eligible=0 untuk semua node yang ter-filter sebelum scoring
+    for node in &all_nodes {
+        if !service.endpoints_by_nodename.contains_key(node) {
+            metrics::set_node_eligible(node, &service.name, 0.0);
+            metrics::set_performance_score(node, &service.name, 0.0);
+            metrics::set_score_percentage(node, &service.name, 0.0);
+            metrics::set_nft_slots(node, &service.name, 0);
+        }
+    }
+
     service
         .endpoints_by_nodename
         .iter()
@@ -101,10 +118,20 @@ pub async fn update_nftables(
             score_by_nodename.insert(nodename.clone(), score_percentage * 100.0);
             let node_portion = (score_percentage * probability_cap as f64).round() as u32;
 
+            // menulis metrik performance score dan score percentage ke Prometheus
+            metrics::set_performance_score(nodename, &service.name, score);
+            metrics::set_score_percentage(nodename, &service.name, score_percentage * 100.0);
+
             if node_portion == 0 {
                 warn!("actor: node {} got 0 portion, skipping", nodename);
+                metrics::set_nft_slots(nodename, &service.name, 0);
+                metrics::set_node_eligible(nodename, &service.name, 0.0);
                 return;
             }
+
+            // node eligible: lolos filter dan mendapat porsi > 0
+            metrics::set_nft_slots(nodename, &service.name, node_portion);
+            metrics::set_node_eligible(nodename, &service.name, 1.0);
 
             // Distribute evenly across endpoints, using floor to stay within bounds
             let portion_each = node_portion / endpoints.len() as u32;
