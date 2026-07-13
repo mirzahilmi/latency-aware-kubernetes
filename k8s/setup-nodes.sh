@@ -31,13 +31,12 @@ for i in $(seq 0 $((NODE_COUNT - 1))); do
     # 2. Label node with primary NIC
     kubectl label node "$HOSTNAME" primary-nic="$NIC" --overwrite
 
-    # 3. Set tc latency for port 30000 on the node
+    # 3. Set tc latency on flannel overlay (all cross-node pod traffic)
     ssh -t "member@$IP" "\
 sudo tc qdisc del dev $NIC root 2>/dev/null || true && \
-sudo tc qdisc add dev $NIC root handle 1: prio bands 3 priomap 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 2 && \
-sudo tc qdisc add dev $NIC parent 1:1 handle 10: netem delay $LATENCY && \
-sudo tc filter add dev $NIC parent 1:0 protocol ip u32 match ip sport 30000 0xffff flowid 1:1 && \
-echo '  tc: $LATENCY latency on port 30000 via $NIC'"
+sudo tc qdisc del dev flannel.1 root 2>/dev/null || true && \
+sudo tc qdisc add dev flannel.1 root netem delay $LATENCY && \
+echo '  tc: $LATENCY latency on flannel.1'"
 
     echo "  done."
 done
