@@ -1,0 +1,4 @@
+data/
+visuals/
+*.xlsx
+!TEMPLATE_TABEL_PARAMETER_EVALUASI.xlsx
