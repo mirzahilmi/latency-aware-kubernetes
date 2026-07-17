@@ -21,7 +21,9 @@
       {pkgs}: {
         default = pkgs.mkShellNoCC {
           packages = with pkgs; [
-            texlive.combined.scheme-medium
+            (texlive.combine {
+              inherit (texlive) scheme-medium multirow ieeetran;
+            })
           ];
         };
       }
