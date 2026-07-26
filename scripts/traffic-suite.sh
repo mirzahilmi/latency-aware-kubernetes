@@ -1,5 +1,8 @@
 #!/usr/bin/env sh
 
+# Resolve paths relative to this script's directory
+cd "$(dirname "$0")"
+
 if [ -z "$1" ]; then
     echo "Error: Missing required argument: environment" >&2
     exit 1
@@ -22,7 +25,7 @@ do
     k6 run \
       --out "csv=dataset/RPS_DATASET_$1_TESTCASE_${I}.csv" \
       --no-thresholds \
-      ./generation_script.js
+      ./traffic-load.js
 
   I=$((I+1))
 

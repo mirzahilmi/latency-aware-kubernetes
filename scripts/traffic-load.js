@@ -17,8 +17,8 @@ for (let i = 0; i < distributions.length; i++) {
       executor: "constant-arrival-rate",
       duration: __ENV.DURATION,
       rate: Number(distributions[i]),
-      preAllocatedVUs: Math.ceil(Number(distributions[i]) * 0.75),
-      maxVUs: Number(distributions[i]) * 2,
+      preAllocatedVUs: Number(distributions[i]) * 3,
+      maxVUs: Number(distributions[i]) * 3,
       env: { TARGET: nodes[i].ip },
   };
 }
@@ -26,10 +26,10 @@ for (let i = 0; i < distributions.length; i++) {
 export const options = {
   scenarios: scenarios,
   discardResponseBodies: true,
-  noVUConnectionReuse: true,
+  noVUConnectionReuse: false,
 };
 
 export default function() {
-  const res = http.get(`http://${__ENV.TARGET}:30002`, { timeout: "300s" });
+  const res = http.get(`http://${__ENV.TARGET}:30000`, { timeout: "300s" });
   check(res, { "status is 200": (res) => res.status === 200 });
 }
