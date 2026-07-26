@@ -2,11 +2,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-NODES="${SCRIPT_DIR}/nodes.json"
+NODES="${SCRIPT_DIR}/config.json"
 
 if [ ! -f "$NODES" ]; then
     echo "Error: config file not found at ${NODES}" >&2
-    echo "Config shape: [{\"hostname\": \"...\", \"ip\": \"...\", \"netinterface\": \"...\", \"latency\": \"10ms\"}]" >&2
+    echo "Config shape: {\"nodes\": [{\"hostname\": \"...\", \"ip\": \"...\", \"netinterface\": \"...\", \"latency\": \"10ms\"}]}" >&2
     exit 1
 fi
 
@@ -15,13 +15,13 @@ if ! command -v jq &>/dev/null; then
     exit 1
 fi
 
-NODE_COUNT=$(jq length "$NODES")
+NODE_COUNT=$(jq '.nodes | length' "$NODES")
 
 for i in $(seq 0 $((NODE_COUNT - 1))); do
-    HOSTNAME=$(jq -r ".[$i].hostname" "$NODES")
-    IP=$(jq -r ".[$i].ip" "$NODES")
-    NIC=$(jq -r ".[$i].netinterface" "$NODES")
-    LATENCY=$(jq -r ".[$i].latency" "$NODES")
+    HOSTNAME=$(jq -r ".nodes[$i].hostname" "$NODES")
+    IP=$(jq -r ".nodes[$i].ip" "$NODES")
+    NIC=$(jq -r ".nodes[$i].netinterface" "$NODES")
+    LATENCY=$(jq -r ".nodes[$i].latency" "$NODES")
 
     echo "==> Setting up node: ${HOSTNAME} (${IP}, nic=${NIC}, latency=${LATENCY})"
 

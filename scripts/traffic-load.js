@@ -3,8 +3,7 @@ import { SharedArray } from 'k6/data';
 import { sleep, check } from "k6";
 
 const nodes = new SharedArray("nodes", function () {
-  const nodes = JSON.parse(open("./targets.json"));
-  return nodes;
+  return JSON.parse(open("./config.json")).nodes;
 });
 const distributions = __ENV.DISTRIBUTIONS.split(",");
 
