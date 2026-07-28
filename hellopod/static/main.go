@@ -9,11 +9,22 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/adaptor"
 	"github.com/gofiber/template/html/v2"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 //go:embed index.html
 var templatesFs embed.FS
+
+var served = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "hellopod_requests_served_total",
+		Help: "HTTP requests served by this pod",
+	},
+	[]string{"status"},
+)
 
 func main() {
 	hostName := os.Getenv("NODE_NAME")
@@ -49,9 +60,29 @@ func main() {
 	_ = cpuCostDuration
 
 	r := fiber.New(fiber.Config{
-		Prefork: true,
+		Prefork: false,
 		AppName: "Hellopod Static",
 		Views:   html.NewFileSystem(http.FS(templatesFs), ".html"),
+	})
+
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(served)
+
+	r.Get("/metrics", adaptor.HTTPHandler(promhttp.HandlerFor(registry, promhttp.HandlerOpts{})))
+
+	r.Use(func(c *fiber.Ctx) error {
+		err := c.Next()
+
+		status := c.Response().StatusCode()
+		if err != nil {
+			status = fiber.StatusInternalServerError
+			if e, ok := err.(*fiber.Error); ok {
+				status = e.Code
+			}
+		}
+		served.WithLabelValues(strconv.Itoa(status)).Inc()
+
+		return err
 	})
 
 	r.Get("/", func(c *fiber.Ctx) error {
