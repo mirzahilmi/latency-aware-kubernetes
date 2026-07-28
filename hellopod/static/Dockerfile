@@ -15,7 +15,6 @@ FROM cgr.dev/chainguard/wolfi-base:latest
 WORKDIR /bin
 
 COPY --from=builder --chown=nonroot:nonroot /artifact/program /bin
-RUN apk add dumb-init
 
 USER nonroot
 
@@ -25,5 +24,4 @@ LABEL "org.opencontainers.image.description"="HelloPod!"
 LABEL "org.opencontainers.image.licenses"="AGPL-3.0"
 
 # see https://github.com/gofiber/fiber/issues/1036#issuecomment-841763449
-ENTRYPOINT ["/usr/bin/dumb-init", "--"]
-CMD ["/bin/program"]
+ENTRYPOINT ["/bin/program"]

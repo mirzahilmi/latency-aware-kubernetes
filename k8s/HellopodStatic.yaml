@@ -34,7 +34,7 @@ spec:
 
       containers:
         - name: hellopod-static-app
-          image: ghcr.io/mirzahilmi/hellopod-static:1.0.3
+          image: ghcr.io/mirzahilmi/hellopod-static:1.1.0
           imagePullPolicy: IfNotPresent
 
           ports:
