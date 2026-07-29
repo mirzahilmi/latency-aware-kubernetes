@@ -6,7 +6,7 @@ time. Worker node identity comes from kubectl so ordering is stable across runs.
 
 Usage:
     uv run node_rps_overtime.py --start 2026-07-29T11:11+07:00 --duration 20m
-    uv run node_rps_overtime.py --start ... --end ... --trim --csv out.csv
+    uv run node_rps_overtime.py --start ... --end ... --trim --out visuals/
 """
 
 import argparse
@@ -17,6 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -30,10 +31,7 @@ METRIC = "hellopod_requests_served_total"
 # skipped: yellow beside orange fails the normal-vision floor (dE 13.7 < 15).
 SERIES_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#4a3aa7"]
 
-TEXT_PRIMARY = "#0b0b0b"
-TEXT_SECONDARY = "#52514e"
-TEXT_MUTED = "#8a8880"
-SURFACE = "#fcfcfb"
+SUBTITLE_COLOR = "#666"
 
 
 def parse_duration(text):
@@ -82,6 +80,21 @@ def fetch_worker_nodes():
         return None
 
     return sorted(item["metadata"]["name"] for item in json.loads(raw)["items"])
+
+
+def get_title(targets, solution):
+    """Build the heading used across the chart set from the per-worker targets.
+
+    Matches chart_visualization.py's wording. The solution rides in the title
+    because this chart spends its legend on worker identity, so unlike the
+    sibling charts it has no BASELINE/EWMA/LEASTCONN line to name it.
+    """
+    balance = "Balance" if len(set(targets)) == 1 else "Imbalance"
+    title = f"Distributed Requests ({balance}) - {solution}"
+    subtitle = " - ".join(
+        f"Worker {i + 1} ({rps} RPS)" for i, rps in enumerate(targets)
+    )
+    return title, subtitle
 
 
 def prom_query(base_url, path, params):
@@ -177,10 +190,9 @@ def build_wide(df, nodes):
     return wide
 
 
-def plot(wide, labels, scenario, started_at, out_path):
+def plot(wide, labels, title, subtitle, out_path):
     sns.set_style("whitegrid")
-    fig, ax = plt.subplots(figsize=(14, 14 / 1.62), facecolor=SURFACE)
-    ax.set_facecolor(SURFACE)
+    fig, ax = plt.subplots(figsize=(14, 14 / 1.62))
 
     for i, node in enumerate(wide.columns):
         color = SERIES_COLORS[i % len(SERIES_COLORS)]
@@ -204,41 +216,28 @@ def plot(wide, labels, scenario, started_at, out_path):
                 textcoords="offset points",
                 va="center",
                 fontsize=9,
-                color=TEXT_SECONDARY,
+                color=SUBTITLE_COLOR,
             )
 
-    ax.set_title(
-        f"Per-Node Request Throughput — {scenario} Scenario",
-        y=1.09,
-        color=TEXT_PRIMARY,
-        fontsize=14,
-    )
+    ax.set_title(title, y=1.11)
     ax.text(
-        0.5,
-        1.055,
-        f"{METRIC} by worker node · run started {started_at:%Y-%m-%d %H:%M %Z}",
+        0.512,
+        1.085,
+        subtitle,
         ha="center",
         fontsize=9,
-        color=TEXT_MUTED,
+        color=SUBTITLE_COLOR,
         transform=ax.transAxes,
     )
-    ax.set_xlabel("Scenario Elapsed Time (seconds)", labelpad=10, color=TEXT_SECONDARY)
-    ax.set_ylabel("Requests per Second", labelpad=10, color=TEXT_SECONDARY)
-    ax.legend(
-        loc="upper center",
-        bbox_to_anchor=(0.5, 1.04),
-        ncol=len(wide.columns),
-        frameon=False,
-    )
-    ax.grid(True, alpha=0.25)
+    ax.set_xlabel("Testcase Duration (seconds)", labelpad=10)
+    ax.set_ylabel("Requests per Second")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, 1.08), ncol=5, frameon=False)
+    ax.grid(True, alpha=0.3)
     ax.set_ylim(bottom=0)
     ax.margins(x=0.06)
-    ax.tick_params(colors=TEXT_SECONDARY)
-    for spine in ax.spines.values():
-        spine.set_visible(False)
 
     fig.tight_layout()
-    fig.savefig(out_path, dpi=300, bbox_inches="tight", facecolor=SURFACE)
+    fig.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -281,10 +280,18 @@ def main():
         "--rate-window",
         help="rate() lookback (default: 2x scrape interval, the minimum that yields data)",
     )
-    parser.add_argument("--scenario", default="800/800/800/800", help="scenario name for the title")
+    parser.add_argument(
+        "--solution",
+        required=True,
+        help="load balancer under test, named in the title (BASELINE, EWMA, LEASTCONN)",
+    )
+    parser.add_argument(
+        "--targets",
+        default="800,800,800,800",
+        help="per-worker target RPS for the subtitle, e.g. 800,800,800,800",
+    )
     parser.add_argument("--trim", action="store_true", help="crop idle samples to the load period")
-    parser.add_argument("--out", default="visuals/node_rps_overtime.png", help="output PNG path")
-    parser.add_argument("--csv", help="also write the plotted series to this CSV")
+    parser.add_argument("--out", default="visuals", help="output directory for the PNG chart")
     args = parser.parse_args()
 
     start = datetime.fromisoformat(args.start)
@@ -318,13 +325,14 @@ def main():
 
     summarize(wide, labels)
 
-    out = args.out
-    plot(wide, labels, args.scenario, start, out)
-    print(f"\n  wrote {out}")
+    targets = [t.strip() for t in args.targets.split(",")]
+    title, subtitle = get_title(targets, args.solution)
 
-    if args.csv:
-        wide.rename(columns=labels).to_csv(args.csv)
-        print(f"  wrote {args.csv}")
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / "node_rps_overtime.png"
+    plot(wide, labels, title, subtitle, out)
+    print(f"\n  wrote {out}")
 
 
 if __name__ == "__main__":
