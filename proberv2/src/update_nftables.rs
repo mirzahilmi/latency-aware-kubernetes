@@ -18,6 +18,10 @@ use crate::{
     config::Config,
     metrics,
 };
+fn performance_score(datapoint: &ScorePair, exponent: f64) -> f64 {
+    ((1.0 - datapoint.cpu) / datapoint.latency).powf(exponent)
+}
+
 pub async fn update_nftables(
     config: Config,
     mut service: Service,
@@ -71,7 +75,7 @@ pub async fn update_nftables(
                 // this should be safe right, above code already filters out nodename with no datapoint
                 .unwrap();
 
-            let score = (1.0 - datapoint.cpu) / datapoint.latency;
+            let score = performance_score(datapoint, config.alpha.score_exponent);
             total_endpoints += endpoints.len();
             total_score += score;
         });
@@ -112,7 +116,7 @@ pub async fn update_nftables(
                 // this should be safe right, above code already filters out nodename with no datapoint
                 .unwrap();
 
-            let score = (1.0 - datapoint.cpu) / datapoint.latency;
+            let score = performance_score(datapoint, config.alpha.score_exponent);
             let score_percentage = score / total_score;
 
             score_by_nodename.insert(nodename.clone(), score_percentage * 100.0);

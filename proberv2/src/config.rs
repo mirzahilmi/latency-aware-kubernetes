@@ -54,6 +54,8 @@ pub struct ProbeConfig {
 pub struct AlphaConfig {
     pub ewma_latency: f64,
     pub ewma_cpu: f64,
+    #[serde(default = "default_score_exponent")]
+    pub score_exponent: f64,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -63,6 +65,10 @@ pub struct MetricsConfig {
     pub listen_addr: String,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+}
+
+fn default_score_exponent() -> f64 {
+    0.3
 }
 
 fn default_listen_addr() -> String {
