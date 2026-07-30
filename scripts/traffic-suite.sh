@@ -162,7 +162,9 @@ for dists in $SCENARIOS
 do
   IFS="$OLDIFS"
 
-  echo "Running testcase=$I env=$ENVIRONMENT mode=$MODE output=$OUTPUT duration=$DURATION with DISTRIBUTIONS=$dists at $(date --iso-8601=minutes)"
+  echo "Running testcase=$I env=$ENVIRONMENT mode=$MODE output=$OUTPUT duration=$DURATION with DISTRIBUTIONS=$dists"
+
+  STARTED_AT="$(date --iso-8601=seconds)"
 
   # Positional params are free here; the option loop above already consumed them.
   if [ "$OUTPUT" = "csv" ]; then
@@ -180,6 +182,9 @@ do
         "$@" \
         --no-thresholds \
         "$SCRIPT"
+
+  # Printed after k6 so the k6 error log can't bury it
+  echo "Finished testcase=$I started=$STARTED_AT ended=$(date --iso-8601=seconds)"
 
   I=$((I+1))
 
