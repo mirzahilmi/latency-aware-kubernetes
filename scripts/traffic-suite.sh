@@ -155,7 +155,18 @@ IFS="$OLDIFS"
 
 I=1
 
-[ "$OUTPUT" = "csv" ] && mkdir -p dataset
+mkdir -p dataset
+
+# tmux scrollback is unreliable once k6 floods it, so the times also land on disk.
+# Global across every invocation of this script; the counter picks up where the
+# previous run left off.
+TIMES_CSV="dataset/TESTCASE_TIMES.csv"
+[ -f "$TIMES_CSV" ] || echo "testcase,started_at,ended_at" > "$TIMES_CSV"
+
+RUN_NO="$(tail -n 1 "$TIMES_CSV" | cut -d, -f1)"
+case "$RUN_NO" in
+    ""|*[!0-9]*) RUN_NO=0 ;;
+esac
 
 IFS=";"
 for dists in $SCENARIOS
@@ -183,8 +194,12 @@ do
         --no-thresholds \
         "$SCRIPT"
 
+  ENDED_AT="$(date --iso-8601=seconds)"
+  RUN_NO=$((RUN_NO+1))
+  echo "$RUN_NO,$STARTED_AT,$ENDED_AT" >> "$TIMES_CSV"
+
   # Printed after k6 so the k6 error log can't bury it
-  echo "Finished testcase=$I started=$STARTED_AT ended=$(date --iso-8601=seconds)"
+  echo "Finished testcase=$I started=$STARTED_AT ended=$ENDED_AT"
 
   I=$((I+1))
 
