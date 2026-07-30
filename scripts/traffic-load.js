@@ -25,7 +25,7 @@ for (let i = 0; i < distributions.length; i++) {
 export const options = {
   scenarios: scenarios,
   discardResponseBodies: true,
-  noVUConnectionReuse: false,
+  noVUConnectionReuse: true,
 };
 
 export default function() {

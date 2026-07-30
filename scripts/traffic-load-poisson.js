@@ -165,7 +165,7 @@ function buildScenarios() {
 export const options = {
   scenarios: __VU == 0 ? buildScenarios() : {},
   discardResponseBodies: true,
-  noVUConnectionReuse: false,
+  noVUConnectionReuse: true,
 };
 
 export default function() {

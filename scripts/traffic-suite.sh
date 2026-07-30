@@ -162,7 +162,7 @@ for dists in $SCENARIOS
 do
   IFS="$OLDIFS"
 
-  echo "Running testcase=$I env=$ENVIRONMENT mode=$MODE output=$OUTPUT duration=$DURATION with DISTRIBUTIONS=$dists at $(date --iso-8601=minutes)+07:00"
+  echo "Running testcase=$I env=$ENVIRONMENT mode=$MODE output=$OUTPUT duration=$DURATION with DISTRIBUTIONS=$dists at $(date --iso-8601=minutes)"
 
   # Positional params are free here; the option loop above already consumed them.
   if [ "$OUTPUT" = "csv" ]; then
