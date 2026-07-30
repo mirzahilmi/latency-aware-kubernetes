@@ -1,4 +1,4 @@
-data/
+dataset/
 visuals/
 *.xlsx
 !TEMPLATE_TABEL_PARAMETER_EVALUASI.xlsx
