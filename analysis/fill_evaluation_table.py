@@ -9,6 +9,11 @@ recorded here per INSTRUCTION.md):
 
 All three statistics match k6's own end-of-run summary conventions.
 
+Testcases 7 and 8 were run with Poisson-distributed arrivals instead of
+constant-rate traffic, across all three configurations; those datasets
+(RPS_DATASET_<CONFIG>_POISSON_TESTCASE_{7,8}.csv) fully replace the
+constant-rate ones for those two rows.
+
 Pipeline:
   - DuckDB reads all 24 CSVs in a single streamed scan per metric (three queries total).
   - Filename is parsed in SQL (regex) into (configuration, testcase) so no Python-side
@@ -32,9 +37,21 @@ import openpyxl
 WORKING_DIRECTORY = Path(__file__).resolve().parent
 TEMPLATE_PATH = WORKING_DIRECTORY / "TEMPLATE_TABEL_PARAMETER_EVALUASI.xlsx"
 OUTPUT_PATH = WORKING_DIRECTORY / "TABEL_PARAMETER_EVALUASI.xlsx"
-CSV_GLOB = str(WORKING_DIRECTORY / "RPS_DATASET_*_TESTCASE_*.csv")
+CSV_GLOB = str(WORKING_DIRECTORY / "dataset" / "RPS_DATASET_*_TESTCASE_*.csv")
 
-FILENAME_PATTERN = r"RPS_DATASET_(BASELINE|IPVS_LC|SOLUTION)_TESTCASE_(\d+)\.csv"
+FILENAME_PATTERN = r"RPS_DATASET_(BASELINE|IPVS_LC|EWMA)(?:_POISSON)?_TESTCASE_(\d+)\.csv"
+
+# Testcases 7 and 8 were run with Poisson-distributed arrivals instead of
+# constant-rate traffic; those datasets fully replace the constant ones, so
+# aggregation must pick the "_POISSON_" file for these testcases and ignore
+# any constant-rate file that might still exist alongside it (and vice versa).
+POISSON_TESTCASES_SQL = "(7, 8)"
+POISSON_ROW_FILTER = f"""
+    AND (
+        (testcase IN {POISSON_TESTCASES_SQL} AND filename ILIKE '%_POISSON_%')
+        OR (testcase NOT IN {POISSON_TESTCASES_SQL} AND filename NOT ILIKE '%_POISSON_%')
+    )
+"""
 
 # Test-case number -> RPS ratio string. Documented in CLAUDE.md.
 # Used only for matching against the ratio string read from column A of the template
@@ -52,7 +69,7 @@ TESTCASE_TO_RATIO = {
 
 # Filename configuration token -> destination template column letter.
 CONFIGURATION_TO_COLUMN = {
-    "SOLUTION": "B",  # EWMA       -> proposed solution
+    "EWMA":     "B",  # EWMA       -> proposed solution
     "BASELINE": "C",  # BASELINE
     "IPVS_LC":  "D",  # LEASTCON
 }
@@ -119,12 +136,18 @@ def aggregate_response_time_mean(connection: duckdb.DuckDBPyConnection) -> list[
     log("Aggregating http_req_duration (mean of metric_value, ms)...")
     return connection.execute(
         rf"""
-        SELECT
-            regexp_extract(filename, '{FILENAME_PATTERN}', 1)                  AS configuration,
-            CAST(regexp_extract(filename, '{FILENAME_PATTERN}', 2) AS INTEGER) AS testcase,
-            AVG(metric_value)                                                  AS value
-        FROM read_csv_auto('{CSV_GLOB}', filename=true, header=true)
-        WHERE metric_name = 'http_req_duration'
+        WITH extracted AS (
+            SELECT
+                filename,
+                metric_value,
+                regexp_extract(filename, '{FILENAME_PATTERN}', 1)                  AS configuration,
+                CAST(regexp_extract(filename, '{FILENAME_PATTERN}', 2) AS INTEGER) AS testcase
+            FROM read_csv_auto('{CSV_GLOB}', filename=true, header=true)
+            WHERE metric_name = 'http_req_duration'
+        )
+        SELECT configuration, testcase, AVG(metric_value) AS value
+        FROM extracted
+        WHERE TRUE {POISSON_ROW_FILTER}
         GROUP BY configuration, testcase
         ORDER BY configuration, testcase
         """
@@ -135,17 +158,26 @@ def aggregate_throughput(connection: duckdb.DuckDBPyConnection) -> list[tuple]:
     log("Aggregating http_reqs (count / span, req/s)...")
     return connection.execute(
         rf"""
+        WITH extracted AS (
+            SELECT
+                filename,
+                timestamp,
+                regexp_extract(filename, '{FILENAME_PATTERN}', 1)                  AS configuration,
+                CAST(regexp_extract(filename, '{FILENAME_PATTERN}', 2) AS INTEGER) AS testcase
+            FROM read_csv_auto('{CSV_GLOB}', filename=true, header=true)
+            WHERE metric_name = 'http_reqs'
+        )
         SELECT
-            regexp_extract(filename, '{FILENAME_PATTERN}', 1)                  AS configuration,
-            CAST(regexp_extract(filename, '{FILENAME_PATTERN}', 2) AS INTEGER) AS testcase,
+            configuration,
+            testcase,
             CAST(
-            ROUND(
-                CAST(COUNT(*) AS DOUBLE)
-                / (CAST(MAX(timestamp) AS BIGINT) - CAST(MIN(timestamp) AS BIGINT) + 1)
-            ) AS BIGINT
-        )                                                                      AS value
-        FROM read_csv_auto('{CSV_GLOB}', filename=true, header=true)
-        WHERE metric_name = 'http_reqs'
+                ROUND(
+                    CAST(COUNT(*) AS DOUBLE)
+                    / (CAST(MAX(timestamp) AS BIGINT) - CAST(MIN(timestamp) AS BIGINT) + 1)
+                ) AS BIGINT
+            ) AS value
+        FROM extracted
+        WHERE TRUE {POISSON_ROW_FILTER}
         GROUP BY configuration, testcase
         ORDER BY configuration, testcase
         """
@@ -156,13 +188,22 @@ def aggregate_failure_rate(connection: duckdb.DuckDBPyConnection) -> list[tuple]
     log("Aggregating http_req_failed (\"<percentage> / <total requests>\")...")
     rows = connection.execute(
         rf"""
+        WITH extracted AS (
+            SELECT
+                filename,
+                metric_value,
+                regexp_extract(filename, '{FILENAME_PATTERN}', 1)                  AS configuration,
+                CAST(regexp_extract(filename, '{FILENAME_PATTERN}', 2) AS INTEGER) AS testcase
+            FROM read_csv_auto('{CSV_GLOB}', filename=true, header=true)
+            WHERE metric_name = 'http_req_failed'
+        )
         SELECT
-            regexp_extract(filename, '{FILENAME_PATTERN}', 1)                  AS configuration,
-            CAST(regexp_extract(filename, '{FILENAME_PATTERN}', 2) AS INTEGER) AS testcase,
-            100.0 * AVG(metric_value)                                          AS percentage,
-            COUNT(*)                                                           AS total_requests
-        FROM read_csv_auto('{CSV_GLOB}', filename=true, header=true)
-        WHERE metric_name = 'http_req_failed'
+            configuration,
+            testcase,
+            100.0 * AVG(metric_value) AS percentage,
+            COUNT(*)                  AS total_requests
+        FROM extracted
+        WHERE TRUE {POISSON_ROW_FILTER}
         GROUP BY configuration, testcase
         ORDER BY configuration, testcase
         """
@@ -230,7 +271,7 @@ def print_spotcheck_tables(results_by_sheet: dict[str, dict[tuple[str, int], flo
         results = results_by_sheet[sheet_name]
         for testcase_number in sorted(TESTCASE_TO_RATIO):
             ratio = TESTCASE_TO_RATIO[testcase_number]
-            ewma     = results.get(("SOLUTION", testcase_number))
+            ewma     = results.get(("EWMA", testcase_number))
             baseline = results.get(("BASELINE", testcase_number))
             leastcon = results.get(("IPVS_LC",  testcase_number))
             def render(value: object) -> str:

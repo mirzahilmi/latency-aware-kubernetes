@@ -7,9 +7,16 @@ import seaborn as sns
 sns.set_style("whitegrid")
 plt.rcParams["figure.figsize"] = (14, 8)
 
-BASELINE_FILE = f"./data/dataset/RPS_DATASET_BASELINE_TESTCASE_{sys.argv[1]}.csv"
-SOLUTION_FILE = f"./data/dataset/RPS_DATASET_SOLUTION_TESTCASE_{sys.argv[1]}.csv"
-IPVS_LC_FILE = f"./data/dataset/RPS_DATASET_IPVS_LC_TESTCASE_{sys.argv[1]}.csv"
+TESTCASE = sys.argv[1]
+
+# Testcases 7 and 8 were run with Poisson-distributed arrivals instead of
+# constant-rate traffic; those datasets fully replace the constant ones.
+POISSON_TESTCASES = {"7", "8"}
+SUFFIX = "_POISSON" if TESTCASE in POISSON_TESTCASES else ""
+
+BASELINE_FILE = f"./dataset/RPS_DATASET_BASELINE{SUFFIX}_TESTCASE_{TESTCASE}.csv"
+EWMA_FILE = f"./dataset/RPS_DATASET_EWMA{SUFFIX}_TESTCASE_{TESTCASE}.csv"
+IPVS_LC_FILE = f"./dataset/RPS_DATASET_IPVS_LC{SUFFIX}_TESTCASE_{TESTCASE}.csv"
 
 
 def load_and_clean_data(filepath, dataset_name):
@@ -75,22 +82,32 @@ def get_title():
                 "Distributed Requests (Imbalance)",
                 "Worker 1 (3200 RPS) - Worker 2 (400 RPS) - Worker 3 (400 RPS) - Worker 4 (400 RPS)",
             )
+        case "7":
+            return (
+                "Distributed Requests (Poisson, Imbalance)",
+                "Worker 1 (1600 RPS) - Worker 2 (800 RPS) - Worker 3 (800 RPS) - Worker 4 (400 RPS)",
+            )
+        case "8":
+            return (
+                "Distributed Requests (Poisson, Near-Balance)",
+                "Worker 1 (1200 RPS) - Worker 2 (800 RPS) - Worker 3 (800 RPS) - Worker 4 (800 RPS)",
+            )
         case _:
             return ("Unknown", "N/A")
 
 
-def plot_response_time_overtime(baseline_df, solution_df, ipvs_lc_df):
+def plot_response_time_overtime(baseline_df, ewma_df, ipvs_lc_df):
     fig, ax = plt.subplots(figsize=(14, 14 / 1.62))
 
     baseline_rt = get_response_times(baseline_df)
-    solution_rt = get_response_times(solution_df)
+    ewma_rt = get_response_times(ewma_df)
     ipvs_lc_rt = get_response_times(ipvs_lc_df)
 
     baseline_grouped = (
         baseline_rt.groupby("relative_time")["metric_value"].mean().reset_index()
     )
-    solution_grouped = (
-        solution_rt.groupby("relative_time")["metric_value"].mean().reset_index()
+    ewma_grouped = (
+        ewma_rt.groupby("relative_time")["metric_value"].mean().reset_index()
     )
     ipvs_lc_grouped = (
         ipvs_lc_rt.groupby("relative_time")["metric_value"].mean().reset_index()
@@ -104,8 +121,8 @@ def plot_response_time_overtime(baseline_df, solution_df, ipvs_lc_df):
         alpha=0.8,
     )
     ax.plot(
-        solution_grouped["relative_time"],
-        solution_grouped["metric_value"],
+        ewma_grouped["relative_time"],
+        ewma_grouped["metric_value"],
         label="EWMA",
         linewidth=1.5,
         alpha=0.8,
@@ -142,11 +159,11 @@ def plot_response_time_overtime(baseline_df, solution_df, ipvs_lc_df):
     plt.close()
 
 
-def plot_rps_overtime(baseline_df, solution_df, ipvs_lc_df):
+def plot_rps_overtime(baseline_df, ewma_df, ipvs_lc_df):
     fig, ax = plt.subplots(figsize=(14, 14 / 1.62))
 
     baseline_rps = calculate_rps(baseline_df)
-    solution_rps = calculate_rps(solution_df)
+    ewma_rps = calculate_rps(ewma_df)
     ipvs_lc_rps = calculate_rps(ipvs_lc_df)
 
     ax.plot(
@@ -157,8 +174,8 @@ def plot_rps_overtime(baseline_df, solution_df, ipvs_lc_df):
         alpha=0.8,
     )
     ax.plot(
-        solution_rps["relative_time"],
-        solution_rps["metric_value"],
+        ewma_rps["relative_time"],
+        ewma_rps["metric_value"],
         label="EWMA",
         linewidth=1.5,
         alpha=0.8,
@@ -197,21 +214,21 @@ def plot_rps_overtime(baseline_df, solution_df, ipvs_lc_df):
 def main():
     print("Loading k6 performance data...")
     baseline_df = load_and_clean_data(BASELINE_FILE, "BASELINE")
-    solution_df = load_and_clean_data(SOLUTION_FILE, "EWMA")
+    ewma_df = load_and_clean_data(EWMA_FILE, "EWMA")
     ipvs_lc_df = load_and_clean_data(IPVS_LC_FILE, "LEASTCONN")
 
     print(f"\nBASELINE: {len(baseline_df)} records after removing warmup")
-    print(f"EWMA: {len(solution_df)} records after removing warmup")
+    print(f"EWMA: {len(ewma_df)} records after removing warmup")
     print(f"LEASTCONN: {len(ipvs_lc_df)} records after removing warmup")
 
     # Generate visualizations
     print("\nGenerating visualizations...")
 
     print("  1. Response time over time...")
-    plot_response_time_overtime(baseline_df, solution_df, ipvs_lc_df)
+    plot_response_time_overtime(baseline_df, ewma_df, ipvs_lc_df)
 
     print("  2. Requests per second over time...")
-    plot_rps_overtime(baseline_df, solution_df, ipvs_lc_df)
+    plot_rps_overtime(baseline_df, ewma_df, ipvs_lc_df)
 
 
 if __name__ == "__main__":
