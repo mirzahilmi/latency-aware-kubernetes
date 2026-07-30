@@ -202,12 +202,13 @@ for i in $(seq 0 $((NODE_COUNT - 1))); do
     # 3. Label node with primary NIC
     kubectl label node "$HOSTNAME" primary-nic="$NIC" --overwrite
 
-    # 4. Set tc latency on flannel overlay (all cross-node pod traffic)
+    # 4. Set tc latency on the pod bridge (all traffic entering a pod here)
     ssh -t "${SSH_USER}@${IP}" "\
 sudo tc qdisc del dev $NIC root 2>/dev/null || true && \
 sudo tc qdisc del dev flannel.1 root 2>/dev/null || true && \
-sudo tc qdisc add dev flannel.1 root netem delay $LATENCY && \
-echo '  tc: $LATENCY latency on flannel.1'"
+sudo tc qdisc del dev cni0 root 2>/dev/null || true && \
+sudo tc qdisc add dev cni0 root netem delay $LATENCY && \
+echo '  tc: $LATENCY latency on cni0'"
 
     echo "  done."
 done

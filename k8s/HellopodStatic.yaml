@@ -29,12 +29,20 @@ spec:
                     operator: Exists
 
       topologySpreadConstraints:
+        # Hard constraint: with ScheduleAnyway the spread is only a scoring hint,
+        # and a rolling update leaves a lasting skew (4/2/5/5 was observed). Node
+        # share of served requests then tracks pod count instead of node
+        # capability, which makes the load balancer unmeasurable.
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway
+          whenUnsatisfiable: DoNotSchedule
           labelSelector:
             matchLabels:
               app: hellopod-static
+          # Count only pods of the ReplicaSet being rolled out, so surge pods are
+          # not blocked by the outgoing generation still occupying the nodes.
+          matchLabelKeys:
+            - pod-template-hash
 
       containers:
         - name: hellopod-static-app
@@ -79,14 +87,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.hostIP
-
-          resources:
-            limits:
-              cpu: 300m
-              memory: 100Mi
-            requests:
-              cpu: 100m
-              memory: 100Mi
 
           # per-container security context
           # lock down privileges inside the container
