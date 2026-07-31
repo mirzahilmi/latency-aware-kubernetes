@@ -4,34 +4,42 @@ import { check } from "k6";
 
 // Poisson variant of traffic-load.js.
 //
-// Same open-model semantics and the same mean load: DISTRIBUTIONS[i] is the
-// arrival rate lambda (req/s) for nodes[i]. Instead of k6 pacing arrivals
-// perfectly evenly, the request count of every tick (default 1s) is drawn from
-// Poisson(lambda * tick), i.e. a homogeneous Poisson process observed per tick.
-// The sampled per-tick rates are emitted as constant ramping-arrival-rate
-// segments, so k6 keeps reporting dropped iterations under saturation.
+// Same open-model semantics and the same mean load. Traffic is described as a
+// list of segments; each segment holds one mean arrival rate lambda (req/s) per
+// node for a fixed duration. Instead of k6 pacing arrivals perfectly evenly,
+// the request count of every tick (default 1s) is drawn from
+// Poisson(lambda * tick). The sampled per-tick rates are emitted as constant
+// ramping-arrival-rate stages, so k6 keeps reporting dropped iterations under
+// saturation.
 //
-// The PRNG is seeded (k6's Math.random cannot be), so a given
-// SEED + DISTRIBUTIONS + DURATION + TICK always replays the exact same arrival
-// trace. Run baseline and latency-aware scheduler with the same SEED to keep
-// the traffic identical across comparisons.
+// One segment (DISTRIBUTIONS + DURATION) is a homogeneous Poisson process:
+// lambda is constant, only the per-tick counts fluctuate. Several segments
+// (STEPS + STEP_DURATION) make lambda a step function of time, i.e. a
+// non-homogeneous Poisson process. A staircase that rises and falls back to its
+// starting level visits every load level twice, so the same offered lambda can
+// be compared on the way up and on the way down -- that difference is the
+// control loop's hysteresis.
 //
-// Env:
-//   DISTRIBUTIONS  required  comma separated mean req/s, positional to config.json nodes[]
-//   DURATION       required  k6 duration, e.g. "7m"
+// Because the whole trace comes from one seeded PRNG stream per node, a level
+// revisited later in the run is an independent draw from the same distribution,
+// not a replay of the earlier one.
+//
+// The PRNG is seeded (k6's Math.random cannot be), so a given SEED plus the
+// same segment list and TICK always replays the exact same arrival trace. Run
+// every configuration with the same SEED to keep the traffic identical across
+// comparisons.
+//
+// Env (STEPS wins over DISTRIBUTIONS when both are set):
+//   DISTRIBUTIONS  comma separated mean req/s, positional to config.json nodes[]
+//   DURATION       k6 duration for DISTRIBUTIONS, e.g. "7m"
+//   STEPS          semicolon separated DISTRIBUTIONS vectors, one per step
+//   STEP_DURATION  optional  k6 duration held per step, default "3m"
 //   SEED           optional  integer, default 42
 //   TICK           optional  resampling interval, default "1s"
 
 const nodes = new SharedArray("nodes", function () {
   return JSON.parse(open("./config.json")).nodes;
 });
-const distributions = __ENV.DISTRIBUTIONS.split(",");
-
-if (nodes.length == 0 || distributions.length == 0)
-  throw "NODES or DISTRIBUTIONS IS EMPTY";
-
-if (distributions.length > nodes.length)
-  throw "DISTRIBUTIONS HAS MORE ENTRIES THAN config.json nodes[]";
 
 // mulberry32: small seedable PRNG, uniform in [0,1).
 function mulberry32(seed) {
@@ -113,29 +121,102 @@ function parseDurationSeconds(value) {
   return total;
 }
 
+// "800,400,400,200" -> [800, 400, 400, 200], validated against config.json.
+//
+// 0 is allowed and means "this node receives no traffic during this step": a
+// Poisson process with lambda 0 simply produces no arrivals. That is how a
+// single-entry-node testcase is written once it has to share a step list with
+// four-node ones -- "200,0,0,0" rather than "200" -- since every step has to
+// name the same nodes.
+function parseLambdas(text, label) {
+  const lambdas = text.split(",");
+
+  if (lambdas.length > nodes.length)
+    throw `${label} HAS MORE ENTRIES THAN config.json nodes[]: ${text}`;
+
+  return lambdas.map(function (entry, i) {
+    // Number("") is 0, so an empty field would otherwise pass as a silent zero.
+    if (entry.trim() === "") throw `EMPTY RATE AT INDEX ${i} OF ${label}: ${text}`;
+    const lambda = Number(entry);
+    if (!Number.isFinite(lambda) || lambda < 0)
+      throw `INVALID RATE AT INDEX ${i} OF ${label}: ${entry}`;
+    return lambda;
+  });
+}
+
+// Normalize both env shapes into [{ lambdas, duration }, ...].
+function buildSegments() {
+  if (nodes.length == 0) throw "config.json nodes[] IS EMPTY";
+
+  if (__ENV.STEPS) {
+    const durationText = __ENV.STEP_DURATION || "3m";
+    // A trailing ";" is easy to leave behind when generating the list in shell.
+    const steps = __ENV.STEPS.split(";").filter(function (step) {
+      return step !== "";
+    });
+    if (steps.length == 0) throw "STEPS IS EMPTY";
+
+    const segments = steps.map(function (step, s) {
+      return {
+        lambdas: parseLambdas(step, `STEPS[${s}]`),
+        duration: durationText,
+      };
+    });
+
+    // Every step drives the same set of scenarios, so a step that names fewer
+    // nodes than another would silently leave that node idle for its window.
+    for (let s = 1; s < segments.length; s++)
+      if (segments[s].lambdas.length != segments[0].lambdas.length)
+        throw `STEPS[${s}] HAS ${segments[s].lambdas.length} RATES BUT STEPS[0] HAS ${segments[0].lambdas.length}`;
+
+    return segments;
+  }
+
+  if (!__ENV.DISTRIBUTIONS) throw "NEITHER STEPS NOR DISTRIBUTIONS IS SET";
+  if (!__ENV.DURATION) throw "DURATION IS REQUIRED ALONGSIDE DISTRIBUTIONS";
+
+  return [
+    {
+      lambdas: parseLambdas(__ENV.DISTRIBUTIONS, "DISTRIBUTIONS"),
+      duration: __ENV.DURATION,
+    },
+  ];
+}
+
 function buildScenarios() {
   const tickText = __ENV.TICK || "1s";
   const tickSeconds = parseDurationSeconds(tickText);
-  const totalSeconds = parseDurationSeconds(__ENV.DURATION);
-  const ticks = Math.max(1, Math.round(totalSeconds / tickSeconds));
   const seed = Number(__ENV.SEED || 42);
   if (!Number.isFinite(seed)) throw `INVALID SEED: ${__ENV.SEED}`;
 
-  const scenarios = {};
-  for (let i = 0; i < distributions.length; i++) {
-    const lambda = Number(distributions[i]);
-    if (!(lambda > 0)) throw `INVALID DISTRIBUTION AT INDEX ${i}: ${distributions[i]}`;
+  const segments = buildSegments();
+  const ticksPerSegment = segments.map(function (segment) {
+    return Math.max(1, Math.round(parseDurationSeconds(segment.duration) / tickSeconds));
+  });
 
-    // One independent stream per node, still fully determined by SEED.
+  // Zero is a legal rate per node per step, but a run where every rate is zero
+  // would start k6, hold the whole schedule and send nothing.
+  const busiest = segments.reduce(function (peak, segment) {
+    return Math.max(peak, Math.max.apply(null, segment.lambdas));
+  }, 0);
+  if (busiest <= 0) throw "EVERY RATE IS ZERO; NO TRAFFIC WOULD BE SENT";
+
+  const scenarios = {};
+  for (let i = 0; i < segments[0].lambdas.length; i++) {
+    // One independent stream per node, still fully determined by SEED. Created
+    // once for the whole run so the stream carries across segment boundaries.
     const rand = mulberry32(seed + i * 0x9e3779b1);
 
     const rates = [];
-    for (let t = 0; t < ticks; t++)
-      rates.push(Math.round(samplePoisson(rand, lambda * tickSeconds) / tickSeconds));
+    for (let s = 0; s < segments.length; s++) {
+      const lambda = segments[s].lambdas[i];
+      for (let t = 0; t < ticksPerSegment[s]; t++)
+        rates.push(Math.round(samplePoisson(rand, lambda * tickSeconds) / tickSeconds));
+    }
 
     // Piecewise constant: instantaneous jump (0s) then hold for one tick.
     const stages = [{ target: rates[0], duration: tickText }];
-    for (let t = 1; t < ticks; t++) {
+    for (let t = 1; t < rates.length; t++) {
       stages.push({ target: rates[t], duration: "0s" });
       stages.push({ target: rates[t], duration: tickText });
     }
@@ -143,6 +224,9 @@ function buildScenarios() {
     let maxRate = 0;
     for (let t = 0; t < rates.length; t++)
       if (rates[t] > maxRate) maxRate = rates[t];
+    // Sized for the peak of the whole run, so the low steps of a staircase hold
+    // the peak allocation the entire time. That is deliberate: growing the pool
+    // mid-run would charge VU startup to the step that triggered it.
     const vus = Math.max(1, maxRate * 3);
 
     scenarios[nodes[i].hostname] = {
