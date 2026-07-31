@@ -9,20 +9,21 @@ DEFAULT_SCENARIOS="200;1600;200,200,200,200;800,800,800,800;800,400,400,400;3200
 
 # Staircase profile for --mode staircase: one run that climbs to a peak and
 # returns, holding the 4:2:2:1 ratio of testcase 7 the whole way. Levels are that
-# vector scaled 1x..5x, so step 4 IS testcase 7 (1600,800,800,400) and the peak
-# reaches 4500 req/s total. 9 steps, 27 minutes, 4 hysteresis pairs.
+# vector scaled 1x..3x, peaking at 2700 req/s total. 5 steps, 15 minutes, 2
+# hysteresis pairs.
 #
 # One shape throughout is deliberate: every transition then changes only the
 # offered load, so a knee between two steps is attributable to load rather than
 # to load and distribution moving together.
 #
-# The peak is set slightly above the 4400 req/s of the old DEFAULT_SCENARIOS
-# testcase 6, so the sweep brackets the entire load range those eight testcases
-# covered. Lowering it to save time costs the saturation knee: if dropped stays 0
-# at every step the run still shows response time against load and the up/down
-# comparison, but there is no capacity limit in it to compare between
-# configurations. The knee is the strongest single result here, so it is worth
-# the two extra steps.
+# The peak is capped by the LOAD GENERATOR, not by the cluster. A 27m run peaking
+# at 4500 req/s was OOM-killed at 18m54s having reserved 14607 VUs, and from
+# ~590s in it was also logging "dial: i/o timeout" against a worker: at ~3000
+# connections/s (noVUConnectionReuse is on, so every iteration opens one)
+# nf_conntrack overflows and SYNs are dropped silently. Both failures are in the
+# measuring apparatus, so anything above ~2700 req/s measures the harness rather
+# than the scheduler. Raise this only after confirming conntrack headroom and
+# available RAM on the k6 host.
 #
 # Step duration is bounded from below by the prober's control loop: with
 # latencyInterval 5s and alpha 0.3 the EWMA time constant is ~17s, so ~50s of
@@ -30,21 +31,30 @@ DEFAULT_SCENARIOS="200;1600;200,200,200,200;800,800,800,800;800,400,400,400;3200
 # shorter than ~3m has no settled window left after the warmup discard. Cut
 # steps, not step duration.
 #
-# Two documented alternatives, both via --steps:
+# Wider profiles, all via --steps, in ascending order of what they demand from
+# the load generator. Each was reasoned about but NONE has been shown to survive
+# on this hardware -- check the VU allocation k6 logs at startup before using one:
 #
-# Tighter (7 steps, 21 min/env) -- drops the two outermost levels, peak 3600:
+# 7 steps, 21 min/env, peak 3600 (== testcase 7):
 #   400,200,200,100;800,400,400,200;1200,600,600,300;1600,800,800,400;\
 #   1200,600,600,300;800,400,400,200;400,200,200,100
 #
-# Wider (15 steps, 45 min/env) -- walks all eight DEFAULT_SCENARIOS testcases up
-# and back down. Its up leg lines up row for row with the eight ratio rows of
-# TEMPLATE_TABEL_PARAMETER_EVALUASI.xlsx; TC1 and TC2 drive one entry node,
-# written with explicit zeros exactly as the template spells them ("200:0:0:0"):
+# 9 steps, 27 min/env, peak 4500 -- THIS IS THE PROFILE THAT WAS OOM-KILLED:
+#   400,200,200,100;800,400,400,200;1200,600,600,300;1600,800,800,400;\
+#   2000,1000,1000,500;1600,800,800,400;1200,600,600,300;800,400,400,200;\
+#   400,200,200,100
+#
+# 15 steps, 45 min/env -- walks all eight DEFAULT_SCENARIOS testcases up and back
+# down, so its up leg lines up row for row with the eight ratio rows of
+# TEMPLATE_TABEL_PARAMETER_EVALUASI.xlsx. TC1 and TC2 drive one entry node,
+# written with explicit zeros exactly as the template spells them ("200:0:0:0").
+# Its testcase 6 step puts 3200 req/s on a single node, well past where the dial
+# timeouts began:
 #   200,0,0,0;200,200,200,200;1600,0,0,0;800,400,400,400;800,800,800,800;\
 #   1600,800,800,400;1200,800,800,800;3200,400,400,400;1200,800,800,800;\
 #   1600,800,800,400;800,800,800,800;800,400,400,400;1600,0,0,0;\
 #   200,200,200,200;200,0,0,0
-DEFAULT_STEPS="400,200,200,100;800,400,400,200;1200,600,600,300;1600,800,800,400;2000,1000,1000,500;1600,800,800,400;1200,600,600,300;800,400,400,200;400,200,200,100"
+DEFAULT_STEPS="400,200,200,100;800,400,400,200;1200,600,600,300;800,400,400,200;400,200,200,100"
 DEFAULT_STEP_DURATION="3m"
 DEFAULT_WARMUP="60s"
 
@@ -71,6 +81,11 @@ usage() {
     echo "  --warmup D        staircase only: leading slice of each step to discard" >&2
     echo "                    when aggregating; recorded in the schedule CSV, k6" >&2
     echo "                    still runs it (default $DEFAULT_WARMUP)" >&2
+    echo "  --vu-factor N     poisson/staircase only: VUs reserved per req/s of peak" >&2
+    echo "                    rate, i.e. a response time budget in seconds (default 1)." >&2
+    echo "                    Every VU is a JS runtime and the pool is held for the" >&2
+    echo "                    whole run, so a loose factor gets long runs OOM-killed." >&2
+    echo "                    k6 logs the resolved allocation before allocating it." >&2
     echo "  --output csv      write dataset/RPS_DATASET_<ENV>_TESTCASE_<N>.csv, or" >&2
     echo "                    dataset/RPS_DATASET_<ENV>_STAIRCASE.csv (default)" >&2
     echo "  --output prometheus  remote-write, tagged environment/mode/testcase;" >&2
@@ -178,6 +193,7 @@ DURATION_SET=0
 STEPS="$DEFAULT_STEPS"
 STEP_DURATION="$DEFAULT_STEP_DURATION"
 WARMUP="$DEFAULT_WARMUP"
+VU_FACTOR="1"
 OUTPUT="csv"
 PROMETHEUS_URL=""
 
@@ -218,6 +234,11 @@ while [ $# -gt 0 ]; do
             WARMUP="$2"; shift 2 ;;
         --warmup=*)
             WARMUP="${1#--warmup=}"; shift ;;
+        --vu-factor)
+            [ $# -lt 2 ] && { echo "Error: --vu-factor requires a value" >&2; exit 1; }
+            VU_FACTOR="$2"; shift 2 ;;
+        --vu-factor=*)
+            VU_FACTOR="${1#--vu-factor=}"; shift ;;
         --output)
             [ $# -lt 2 ] && { echo "Error: --output requires a value" >&2; exit 1; }
             OUTPUT="$2"; shift 2 ;;
@@ -394,7 +415,7 @@ if [ "$MODE" = "staircase" ]; then
     echo "Staircase: $STEP_COUNT steps of $STEP_DURATION = ${TOTAL_SECONDS}s total, warmup $WARMUP discarded per step"
     echo "Schedule written to $SCHEDULE_CSV"
 
-    export STEPS STEP_DURATION SEED
+    export STEPS STEP_DURATION SEED VU_FACTOR
     run_k6 "STAIRCASE" "staircase" \
         "staircase env=$ENVIRONMENT output=$OUTPUT step-duration=$STEP_DURATION with STEPS=$STEPS"
 else
@@ -403,7 +424,7 @@ else
     # staircase instead of the requested testcase.
     unset STEPS STEP_DURATION
 
-    export DURATION SEED
+    export DURATION SEED VU_FACTOR
 
     I=1
     IFS=";"

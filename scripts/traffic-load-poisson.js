@@ -36,6 +36,12 @@ import { check } from "k6";
 //   STEP_DURATION  optional  k6 duration held per step, default "3m"
 //   SEED           optional  integer, default 42
 //   TICK           optional  resampling interval, default "1s"
+//   VU_FACTOR      optional  VUs per req/s of peak rate, default 1. This is a
+//                            response time budget in seconds (Little's law): 1
+//                            reserves enough VUs for 1s responses. Every VU is a
+//                            JS runtime, so a loose factor is how a long run gets
+//                            OOM-killed. The resolved allocation is logged before
+//                            k6 starts allocating.
 
 const nodes = new SharedArray("nodes", function () {
   return JSON.parse(open("./config.json")).nodes;
@@ -201,6 +207,12 @@ function buildScenarios() {
   }, 0);
   if (busiest <= 0) throw "EVERY RATE IS ZERO; NO TRAFFIC WOULD BE SENT";
 
+  const vuFactor = Number(__ENV.VU_FACTOR || 1);
+  if (!(vuFactor > 0)) throw `INVALID VU_FACTOR: ${__ENV.VU_FACTOR}`;
+
+  let totalVus = 0;
+  const allocation = [];
+
   const scenarios = {};
   for (let i = 0; i < segments[0].lambdas.length; i++) {
     // One independent stream per node, still fully determined by SEED. Created
@@ -224,10 +236,22 @@ function buildScenarios() {
     let maxRate = 0;
     for (let t = 0; t < rates.length; t++)
       if (rates[t] > maxRate) maxRate = rates[t];
-    // Sized for the peak of the whole run, so the low steps of a staircase hold
-    // the peak allocation the entire time. That is deliberate: growing the pool
-    // mid-run would charge VU startup to the step that triggered it.
-    const vus = Math.max(1, maxRate * 3);
+
+    // By Little's law a scenario needs lambda * E[response time] VUs in flight,
+    // so VU_FACTOR is a response time budget in seconds. Sized for the peak of
+    // the whole run, so the low steps of a staircase hold the peak allocation
+    // the entire time -- growing the pool mid-run would charge VU startup to the
+    // step that triggered it.
+    //
+    // Keep this tight. Every VU is a JS runtime, so an over-generous factor is
+    // how a long run gets OOM-killed, and the pool is held for the whole run
+    // rather than just the peak step. Capping it is also the CORRECT behaviour
+    // for an open model rather than a workaround: once the cluster cannot keep
+    // up, a bounded pool reports the shortfall as dropped_iterations, which is
+    // the saturation signal. An unbounded one reports it as memory growth.
+    const vus = Math.max(1, Math.ceil(maxRate * vuFactor));
+    totalVus += vus;
+    allocation.push(`${nodes[i].hostname}=${vus}`);
 
     scenarios[nodes[i].hostname] = {
       executor: "ramping-arrival-rate",
@@ -239,6 +263,12 @@ function buildScenarios() {
       env: { TARGET: nodes[i].ip },
     };
   }
+
+  // Printed before k6 starts allocating, so an allocation that will not fit is
+  // an immediate abort rather than an OOM kill twenty minutes into the run.
+  console.log(
+    `VU allocation (VU_FACTOR=${vuFactor}): ${allocation.join(" ")} total=${totalVus}`
+  );
 
   return scenarios;
 }
