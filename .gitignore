@@ -189,7 +189,8 @@ analysis/.venv
 analysis/data
 analysis/visuals
 
-# TODO: unignore once accepted to IEEE
 docs/ieee/*
 !docs/ieee/flake.nix
 !docs/ieee/flake.lock
+
+*.tar.*
