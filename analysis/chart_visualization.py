@@ -8,15 +8,11 @@ sns.set_style("whitegrid")
 plt.rcParams["figure.figsize"] = (14, 8)
 
 TESTCASE = sys.argv[1]
+REPETITION = sys.argv[3] if len(sys.argv) > 3 else "1"
 
-# Testcases 7 and 8 were run with Poisson-distributed arrivals instead of
-# constant-rate traffic; those datasets fully replace the constant ones.
-POISSON_TESTCASES = {"7", "8"}
-SUFFIX = "_POISSON" if TESTCASE in POISSON_TESTCASES else ""
-
-BASELINE_FILE = f"./dataset/RPS_DATASET_BASELINE{SUFFIX}_TESTCASE_{TESTCASE}.csv"
-EWMA_FILE = f"./dataset/RPS_DATASET_EWMA{SUFFIX}_TESTCASE_{TESTCASE}.csv"
-IPVS_LC_FILE = f"./dataset/RPS_DATASET_IPVS_LC{SUFFIX}_TESTCASE_{TESTCASE}.csv"
+BASELINE_FILE = f"./dataset/RPS_DATASET_BASELINE_TESTCASE_{TESTCASE}_REPETITION_{REPETITION}.csv"
+EWMA_FILE = f"./dataset/RPS_DATASET_EWMA_TESTCASE_{TESTCASE}_REPETITION_{REPETITION}.csv"
+IPVS_LC_FILE = f"./dataset/RPS_DATASET_IPVS_LC_TESTCASE_{TESTCASE}_REPETITION_{REPETITION}.csv"
 
 
 def load_and_clean_data(filepath, dataset_name):

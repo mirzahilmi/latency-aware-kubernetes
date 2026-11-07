@@ -1,21 +1,18 @@
-"""Fill TABEL_PARAMETER_EVALUASI.xlsx from the 24 k6 CSV outputs.
+"""Fill TABEL_PARAMETER_EVALUASI.xlsx from the k6 CSV outputs.
 
-Summary statistics chosen by the user (applied uniformly across all 24 files,
-recorded here per INSTRUCTION.md):
+Every (configuration, testcase) pair has one CSV per repetition. Summary
+statistics chosen by the user, computed per repetition and then averaged across
+repetitions (recorded here per INSTRUCTION.md):
 
     WAKTU RESPON                 (http_req_duration) -> arithmetic MEAN of metric_value           [ms]
     THROUGHPUT                   (http_reqs)         -> ROUND(COUNT / (max(timestamp) - min(timestamp) + 1)) [req/s, integer]
     TINGKAT KEGAGALAN REQUEST    (http_req_failed)   -> "<100 * MEAN of metric_value> / <COUNT(*)>" [percentage / total requests, string]
 
-All three statistics match k6's own end-of-run summary conventions.
-
-Testcases 7 and 8 were run with Poisson-distributed arrivals instead of
-constant-rate traffic, across all three configurations; those datasets
-(RPS_DATASET_<CONFIG>_POISSON_TESTCASE_{7,8}.csv) fully replace the
-constant-rate ones for those two rows.
+All three statistics match k6's own end-of-run summary conventions. Throughput
+must be computed per repetition: pooled, its span would include the gaps between runs.
 
 Pipeline:
-  - DuckDB reads all 24 CSVs in a single streamed scan per metric (three queries total).
+  - DuckDB reads all CSVs in a single streamed scan per metric (three queries total).
   - Filename is parsed in SQL (regex) into (configuration, testcase) so no Python-side
     pandas/pd.read_csv ever touches the ~30 GB of input.
   - Only the resulting 24-row x 3-metric frame reaches Python.
@@ -39,19 +36,7 @@ TEMPLATE_PATH = WORKING_DIRECTORY / "TEMPLATE_TABEL_PARAMETER_EVALUASI.xlsx"
 OUTPUT_PATH = WORKING_DIRECTORY / "TABEL_PARAMETER_EVALUASI.xlsx"
 CSV_GLOB = str(WORKING_DIRECTORY / "dataset" / "RPS_DATASET_*_TESTCASE_*.csv")
 
-FILENAME_PATTERN = r"RPS_DATASET_(BASELINE|IPVS_LC|EWMA)(?:_POISSON)?_TESTCASE_(\d+)\.csv"
-
-# Testcases 7 and 8 were run with Poisson-distributed arrivals instead of
-# constant-rate traffic; those datasets fully replace the constant ones, so
-# aggregation must pick the "_POISSON_" file for these testcases and ignore
-# any constant-rate file that might still exist alongside it (and vice versa).
-POISSON_TESTCASES_SQL = "(7, 8)"
-POISSON_ROW_FILTER = f"""
-    AND (
-        (testcase IN {POISSON_TESTCASES_SQL} AND filename ILIKE '%_POISSON_%')
-        OR (testcase NOT IN {POISSON_TESTCASES_SQL} AND filename NOT ILIKE '%_POISSON_%')
-    )
-"""
+FILENAME_PATTERN = r"RPS_DATASET_(BASELINE|IPVS_LC|EWMA)_TESTCASE_(\d+)_REPETITION_\d+\.csv"
 
 # Test-case number -> RPS ratio string. Documented in CLAUDE.md.
 # Used only for matching against the ratio string read from column A of the template
@@ -144,10 +129,14 @@ def aggregate_response_time_mean(connection: duckdb.DuckDBPyConnection) -> list[
                 CAST(regexp_extract(filename, '{FILENAME_PATTERN}', 2) AS INTEGER) AS testcase
             FROM read_csv_auto('{CSV_GLOB}', filename=true, header=true)
             WHERE metric_name = 'http_req_duration'
+        ),
+        per_repetition AS (
+            SELECT configuration, testcase, AVG(metric_value) AS value
+            FROM extracted
+            GROUP BY filename, configuration, testcase
         )
-        SELECT configuration, testcase, AVG(metric_value) AS value
-        FROM extracted
-        WHERE TRUE {POISSON_ROW_FILTER}
+        SELECT configuration, testcase, AVG(value) AS value
+        FROM per_repetition
         GROUP BY configuration, testcase
         ORDER BY configuration, testcase
         """
@@ -166,18 +155,18 @@ def aggregate_throughput(connection: duckdb.DuckDBPyConnection) -> list[tuple]:
                 CAST(regexp_extract(filename, '{FILENAME_PATTERN}', 2) AS INTEGER) AS testcase
             FROM read_csv_auto('{CSV_GLOB}', filename=true, header=true)
             WHERE metric_name = 'http_reqs'
+        ),
+        per_repetition AS (
+            SELECT
+                configuration,
+                testcase,
+                CAST(COUNT(*) AS DOUBLE)
+                / (CAST(MAX(timestamp) AS BIGINT) - CAST(MIN(timestamp) AS BIGINT) + 1) AS value
+            FROM extracted
+            GROUP BY filename, configuration, testcase
         )
-        SELECT
-            configuration,
-            testcase,
-            CAST(
-                ROUND(
-                    CAST(COUNT(*) AS DOUBLE)
-                    / (CAST(MAX(timestamp) AS BIGINT) - CAST(MIN(timestamp) AS BIGINT) + 1)
-                ) AS BIGINT
-            ) AS value
-        FROM extracted
-        WHERE TRUE {POISSON_ROW_FILTER}
+        SELECT configuration, testcase, CAST(ROUND(AVG(value)) AS BIGINT) AS value
+        FROM per_repetition
         GROUP BY configuration, testcase
         ORDER BY configuration, testcase
         """
@@ -196,14 +185,22 @@ def aggregate_failure_rate(connection: duckdb.DuckDBPyConnection) -> list[tuple]
                 CAST(regexp_extract(filename, '{FILENAME_PATTERN}', 2) AS INTEGER) AS testcase
             FROM read_csv_auto('{CSV_GLOB}', filename=true, header=true)
             WHERE metric_name = 'http_req_failed'
+        ),
+        per_repetition AS (
+            SELECT
+                configuration,
+                testcase,
+                100.0 * AVG(metric_value) AS percentage,
+                COUNT(*)                  AS total_requests
+            FROM extracted
+            GROUP BY filename, configuration, testcase
         )
         SELECT
             configuration,
             testcase,
-            100.0 * AVG(metric_value) AS percentage,
-            COUNT(*)                  AS total_requests
-        FROM extracted
-        WHERE TRUE {POISSON_ROW_FILTER}
+            AVG(percentage)            AS percentage,
+            ROUND(AVG(total_requests)) AS total_requests
+        FROM per_repetition
         GROUP BY configuration, testcase
         ORDER BY configuration, testcase
         """
