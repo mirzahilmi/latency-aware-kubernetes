@@ -55,6 +55,22 @@ data:
             target_label: __address__
           - source_labels: [__meta_kubernetes_node_name]
             target_label: node
+
+      - job_name: proberv2
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_node_label_node_role_kubernetes_io_worker]
+            regex: "true"
+            action: keep
+          # proberv2 runs in the host network and serves metrics on 9101
+          - source_labels: [__address__]
+            regex: (.+):\d+
+            replacement: $1:9101
+            target_label: __address__
+          # not "node": proberv2 series already use that label for the scored site
+          - source_labels: [__meta_kubernetes_node_name]
+            target_label: gateway
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
