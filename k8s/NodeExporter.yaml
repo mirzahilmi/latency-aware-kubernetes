@@ -21,6 +21,10 @@ spec:
                   - key: node-role.kubernetes.io/control-plane
                     operator: DoesNotExist
 
+      # Keeps scrapes off cni0, where setup-nodes.sh injects the emulated
+      # latency, so the CPU signal is not delayed by the node under test
+      hostNetwork: true
+
       volumes:
         - hostPath:
             path: /sys
